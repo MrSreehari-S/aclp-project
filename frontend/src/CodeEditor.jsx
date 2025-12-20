@@ -6,15 +6,19 @@ function CodeEditor() {
   const [code, setCode] = useState("");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [showHint, setShowHint] = useState(false);
 
   const submitCode = async () => {
     if (!problem) {
-      setResult("Please select a problem first.");
+      setResult({
+        message: "Please select a problem first.",
+        results: []
+      });
       return;
     }
 
     setLoading(true);
-    setResult("");
+    setResult(null);
 
     try {
       const response = await fetch(
@@ -31,86 +35,123 @@ function CodeEditor() {
       );
 
       const data = await response.json();
-        setResult(data);
-
+      setResult(data);
     } catch (error) {
-      setResult("Error connecting to backend");
+      setResult({
+        message: "Error connecting to backend",
+        results: []
+      });
     }
 
     setLoading(false);
   };
 
   return (
-    <div>
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
+
       <ProblemSelector onSelect={setProblem} />
 
       {problem && (
-        <div style={{ marginTop: "20px", padding: "10px", border: "1px solid #ccc" }}>
-          <h2>{problem.title}</h2>
-          <p><strong>Description:</strong> {problem.description}</p>
-          <p><strong>Difficulty:</strong> {problem.difficulty}</p>
-          <p><strong>Input Format:</strong> {problem.inputFormat}</p>
-          <p><strong>Output Format:</strong> {problem.outputFormat}</p>
+        <div className="bg-white shadow rounded p-6 space-y-3">
+          <h2 className="text-2xl font-bold">{problem.title}</h2>
 
-          <p><strong>Sample Input:</strong></p>
-          <pre>{problem.sampleInput}</pre>
+          <p><span className="font-semibold">Description:</span> {problem.description}</p>
+          <p><span className="font-semibold">Difficulty:</span> {problem.difficulty}</p>
+          <p><span className="font-semibold">Input Format:</span> {problem.inputFormat}</p>
+          <p><span className="font-semibold">Output Format:</span> {problem.outputFormat}</p>
 
-          <p><strong>Sample Output:</strong></p>
-          <pre>{problem.sampleOutput}</pre>
+          <div>
+            <p className="font-semibold">Sample Input:</p>
+            <pre className="bg-gray-100 p-2 rounded">{problem.sampleInput}</pre>
+          </div>
+
+          <div>
+            <p className="font-semibold">Sample Output:</p>
+            <pre className="bg-gray-100 p-2 rounded">{problem.sampleOutput}</pre>
+          </div>
+
+          <hr />
+
+          <div>
+            <h3 className="font-semibold text-lg">Input Guidance</h3>
+            <ul className="list-disc ml-6 text-sm text-gray-700">
+              <li>Input may be space-separated or line-separated</li>
+              <li>Use <code className="bg-gray-200 px-1 rounded">input().split()</code> when reading multiple values</li>
+              <li>Always use <code className="bg-gray-200 px-1 rounded">print()</code> to show output</li>
+            </ul>
+
+            <button
+              className="mt-2 text-blue-600 underline"
+              onClick={() => setShowHint(!showHint)}
+            >
+              {showHint ? "Hide Hint" : "Show Hint"}
+            </button>
+
+            {showHint && (
+              <div className="mt-2 bg-blue-50 p-3 rounded text-sm">
+                <strong>Hint:</strong> Read both numbers first, then print their sum.
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      <h3>Write your Python code:</h3>
+      <div>
+        <h3 className="font-semibold mb-2">Write your Python code</h3>
+        <textarea
+          className="w-full border rounded p-3 font-mono"
+          rows="10"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="Enter Python code here"
+        />
+      </div>
 
-      <textarea
-        rows="10"
-        cols="80"
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        placeholder="Enter Python code here"
-      />
-
-      <br /><br />
-
-      <button onClick={submitCode} disabled={loading}>
+      <button
+        onClick={submitCode}
+        disabled={loading}
+        className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+      >
         {loading ? "Running..." : "Submit"}
       </button>
 
-      {result && (
-  <div style={{ marginTop: "20px" }}>
-    {/* Overall Verdict */}
-    <h2 style={{ color: result.passedCount === result.total ? "green" : "red" }}>
-      {result.message}
-    </h2>
+      {result && result.results && (
+        <div className="space-y-4">
+          <h2
+            className={`text-xl font-bold ${
+              result.passedCount === result.total
+                ? "text-green-600"
+                : "text-red-600"
+            }`}
+          >
+            {result.message}
+          </h2>
 
-    {/* Test Case Results */}
-    {result.results.map((test, index) => (
-      <div
-        key={index}
-        style={{
-          border: "1px solid #ccc",
-          padding: "10px",
-          marginBottom: "10px",
-          backgroundColor: test.passed ? "#e6ffed" : "#ffe6e6"
-        }}
-      >
-        <h4>
-          Test Case {index + 1} {test.passed ? "✅" : "❌"}
-        </h4>
+          {result.results.map((test, index) => (
+            <div
+              key={index}
+              className={`p-4 rounded border ${
+                test.passed ? "bg-green-50" : "bg-red-50"
+              }`}
+            >
+              <h4 className="font-semibold">
+                Test Case {index + 1} {test.passed ? "✅" : "❌"}
+              </h4>
 
-        <p><strong>Input:</strong></p>
-        <pre>{test.input}</pre>
+              <p className="font-semibold">Input</p>
+              <pre className="bg-gray-100 p-2 rounded">{test.input}</pre>
 
-        <p><strong>Expected Output:</strong></p>
-        <pre>{test.expectedOutput}</pre>
+              <p className="font-semibold">Expected Output</p>
+              <pre className="bg-gray-100 p-2 rounded">{test.expectedOutput}</pre>
 
-        <p><strong>Your Output:</strong></p>
-        <pre>{test.actualOutput || "(no output)"}</pre>
-      </div>
-    ))}
-  </div>
-)}
-
+              <p className="font-semibold">Your Output</p>
+              <pre className="bg-gray-100 p-2 rounded">
+                {test.actualOutput || "No output detected. Did you forget print()?"}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

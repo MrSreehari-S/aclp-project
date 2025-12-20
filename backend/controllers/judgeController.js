@@ -3,12 +3,9 @@ import Problem from "../models/Problem.js";
 
 const PISTON_URL = "https://emkc.org/api/v2/piston/execute";
 
-/**
- * Maps languageId (frontend/backend choice) to Piston language config
- */
 const languageMap = {
-  71: { language: "python", version: "3.10.0", file: "main.py" }, // Python 3
-  54: { language: "cpp", version: "10.2.0", file: "main.cpp" }    // C++
+  71: { language: "python", version: "3.10.0", file: "main.py" },
+  54: { language: "cpp", version: "10.2.0", file: "main.cpp" }
 };
 
 export const evaluateCode = async (req, res) => {
@@ -28,17 +25,37 @@ export const evaluateCode = async (req, res) => {
     let results = [];
     let passedCount = 0;
 
+    const isAdvancedPython =
+      config.language === "python" &&
+      /input\(\)\.split\(/.test(sourceCode);
+
     for (const test of problem.hiddenTestCases) {
+      let codeToRun = sourceCode;
+      let stdinToUse = test.input;
+
+      // ✅ Beginner Python → wrap
+      if (config.language === "python" && !isAdvancedPython) {
+        codeToRun = `
+import sys
+data = sys.stdin.read().split()
+it = iter(data)
+def input():
+    return next(it)
+${sourceCode}
+`;
+      }
+
+      // ✅ Advanced Python → raw stdin
       const response = await axios.post(PISTON_URL, {
         language: config.language,
         version: config.version,
         files: [
           {
             name: config.file,
-            content: sourceCode
+            content: codeToRun
           }
         ],
-        stdin: test.input
+        stdin: stdinToUse
       });
 
       const output = response.data.run.stdout?.trim() || "";
@@ -66,7 +83,6 @@ export const evaluateCode = async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
     res.status(500).json({
       message: "Code execution failed",
       error: error.message

@@ -1,13 +1,18 @@
 import { useState } from "react";
-
-const problemId = "690258842474110a9965734b";
+import ProblemSelector from "./ProblemSelector";
 
 function CodeEditor() {
+  const [problem, setProblem] = useState(null);
   const [code, setCode] = useState("");
-  const [result, setResult] = useState("");
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const submitCode = async () => {
+    if (!problem) {
+      setResult("Please select a problem first.");
+      return;
+    }
+
     setLoading(true);
     setResult("");
 
@@ -18,15 +23,16 @@ function CodeEditor() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            problemId,
+            problemId: problem._id,
             sourceCode: code,
-            languageId: 71 // Python
+            languageId: 71
           })
         }
       );
 
       const data = await response.json();
-      setResult(JSON.stringify(data, null, 2));
+        setResult(data);
+
     } catch (error) {
       setResult("Error connecting to backend");
     }
@@ -36,6 +42,24 @@ function CodeEditor() {
 
   return (
     <div>
+      <ProblemSelector onSelect={setProblem} />
+
+      {problem && (
+        <div style={{ marginTop: "20px", padding: "10px", border: "1px solid #ccc" }}>
+          <h2>{problem.title}</h2>
+          <p><strong>Description:</strong> {problem.description}</p>
+          <p><strong>Difficulty:</strong> {problem.difficulty}</p>
+          <p><strong>Input Format:</strong> {problem.inputFormat}</p>
+          <p><strong>Output Format:</strong> {problem.outputFormat}</p>
+
+          <p><strong>Sample Input:</strong></p>
+          <pre>{problem.sampleInput}</pre>
+
+          <p><strong>Sample Output:</strong></p>
+          <pre>{problem.sampleOutput}</pre>
+        </div>
+      )}
+
       <h3>Write your Python code:</h3>
 
       <textarea
@@ -52,8 +76,41 @@ function CodeEditor() {
         {loading ? "Running..." : "Submit"}
       </button>
 
-      <h3>Result:</h3>
-      <pre>{result}</pre>
+      {result && (
+  <div style={{ marginTop: "20px" }}>
+    {/* Overall Verdict */}
+    <h2 style={{ color: result.passedCount === result.total ? "green" : "red" }}>
+      {result.message}
+    </h2>
+
+    {/* Test Case Results */}
+    {result.results.map((test, index) => (
+      <div
+        key={index}
+        style={{
+          border: "1px solid #ccc",
+          padding: "10px",
+          marginBottom: "10px",
+          backgroundColor: test.passed ? "#e6ffed" : "#ffe6e6"
+        }}
+      >
+        <h4>
+          Test Case {index + 1} {test.passed ? "✅" : "❌"}
+        </h4>
+
+        <p><strong>Input:</strong></p>
+        <pre>{test.input}</pre>
+
+        <p><strong>Expected Output:</strong></p>
+        <pre>{test.expectedOutput}</pre>
+
+        <p><strong>Your Output:</strong></p>
+        <pre>{test.actualOutput || "(no output)"}</pre>
+      </div>
+    ))}
+  </div>
+)}
+
     </div>
   );
 }

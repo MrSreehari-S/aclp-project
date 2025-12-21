@@ -7,8 +7,12 @@ function CodeEditor() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showHint, setShowHint] = useState(false);
+  const [sampleOutput, setSampleOutput] = useState(null);
+
 
   const submitCode = async () => {
+    setSampleOutput(null);
+
     if (!problem) {
       setResult({
         message: "Please select a problem first.",
@@ -46,10 +50,58 @@ function CodeEditor() {
     setLoading(false);
   };
 
+  const runSample = async () => {
+  if (!problem) {
+    setSampleOutput("Please select a problem first.");
+    return;
+  }
+
+  setSampleOutput("Running...");
+
+  try {
+    const response = await fetch("http://localhost:5000/api/judge/run-sample", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceCode: code,
+        input: problem.sampleInput
+      })
+    });
+
+    const data = await response.json();
+    setSampleOutput(data.output || "No output");
+  } catch (err) {
+    setSampleOutput("Error running sample input");
+  }
+};
+
+const resetEditor = () => {
+  const confirmReset = window.confirm("Clear code and reset editor?");
+  if (!confirmReset) return;
+
+  setCode(PYTHON_STARTER_CODE);
+  setResult(null);
+  setSampleOutput(null);
+  setShowHint(false);
+};
+
+
+const PYTHON_STARTER_CODE = `# Read input and Write your solution here`;
+
+
+
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
 
-      <ProblemSelector onSelect={setProblem} />
+      <ProblemSelector
+        onSelect={(selectedProblem) => {
+          setProblem(selectedProblem);
+          setCode(PYTHON_STARTER_CODE);
+          setResult(null);
+          setSampleOutput(null);
+          setShowHint(false);
+        }}
+      />
 
       {problem && (
         <div className="bg-white shadow rounded p-6 space-y-3">
@@ -107,13 +159,60 @@ function CodeEditor() {
         />
       </div>
 
-      <button
-        onClick={submitCode}
-        disabled={loading}
-        className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-      >
-        {loading ? "Running..." : "Submit"}
-      </button>
+      <div className="flex gap-4">
+        <button
+          onClick={runSample}
+          className="bg-gray-600 text-white px-6 py-2 rounded hover:bg-gray-700"
+        >
+          Run Sample
+        </button>
+
+        <button
+          onClick={submitCode}
+          disabled={loading}
+          className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+        >
+          {loading ? "Running..." : "Submit"}
+        </button>
+
+        <button
+          onClick={resetEditor}
+          className="bg-red-500 text-white px-6 py-2 rounded hover:bg-red-600"
+        >
+          Reset
+        </button>
+      </div>
+
+      {sampleOutput !== null && (
+        <div className="mt-6 space-y-3">
+          <h3 className="text-lg font-semibold">Sample Run</h3>
+
+          <div>
+            <p className="font-semibold">Sample Input</p>
+            <pre className="bg-gray-100 p-3 rounded">
+              {problem.sampleInput}
+            </pre>
+          </div>
+
+          <div>
+            <p className="font-semibold">Your Output</p>
+            <pre className="bg-gray-100 p-3 rounded">
+              {sampleOutput}
+            </pre>
+          </div>
+        </div>
+      )}
+
+      
+      {sampleOutput && (
+        <div className="mt-4">
+          <h3 className="font-semibold">Sample Output</h3>
+          <pre className="bg-gray-100 p-3 rounded">
+            {sampleOutput}
+          </pre>
+        </div>
+      )}
+
 
       {result && result.results && (
         <div className="space-y-4">

@@ -3,9 +3,20 @@ import Problem from "../models/Problem.js";
 
 const PISTON_URL = "https://emkc.org/api/v2/piston/execute";
 
+const TIME_LIMIT_MS = 2000;        // informational (Piston enforces internally)
+const MAX_OUTPUT_LENGTH = 10000;  // characters
+
 const languageMap = {
-  71: { language: "python", version: "3.10.0", file: "main.py" },
-  54: { language: "cpp", version: "10.2.0", file: "main.cpp" }
+  71: { language: "python", version: "3.10.0", file: "main.py" }
+};
+
+/**
+ * Classify execution result into verdict
+ */
+const classifyVerdict = ({ stderr, timedOut }) => {
+  if (timedOut) return "TLE";
+  if (stderr && stderr.trim() !== "") return "RE";
+  return "OK";
 };
 
 export const evaluateCode = async (req, res) => {
@@ -25,17 +36,9 @@ export const evaluateCode = async (req, res) => {
     let results = [];
     let passedCount = 0;
 
-    const isAdvancedPython =
-      config.language === "python" &&
-      /input\(\)\.split\(/.test(sourceCode);
-
     for (const test of problem.hiddenTestCases) {
-      let codeToRun = sourceCode;
-      let stdinToUse = test.input;
-
-      // ✅ Beginner Python → wrap
-      if (config.language === "python" && !isAdvancedPython) {
-        codeToRun = `
+      // 🔒 Python input wrapper (learning-safe)
+      const wrappedCode = `
 import sys
 data = sys.stdin.read().split()
 it = iter(data)
@@ -43,40 +46,52 @@ def input():
     return next(it)
 ${sourceCode}
 `;
-      }
 
-      // ✅ Advanced Python → raw stdin
       const response = await axios.post(PISTON_URL, {
         language: config.language,
         version: config.version,
-        files: [
-          {
-            name: config.file,
-            content: codeToRun
-          }
-        ],
-        stdin: stdinToUse
+        files: [{ name: config.file, content: wrappedCode }],
+        stdin: test.input
       });
 
-      const output = response.data.run.stdout?.trim() || "";
-      const expected = test.expectedOutput.trim();
-      const passed = output === expected;
+      const run = response.data.run;
 
-      if (passed) passedCount++;
+      let verdict = classifyVerdict({
+        stderr: run.stderr,
+        timedOut: run.timedOut
+      });
+
+      let output = run.stdout?.trim() || "";
+
+      // 🚫 Output limit enforcement
+      if (output.length > MAX_OUTPUT_LENGTH) {
+        verdict = "RE";
+        output =
+          output.slice(0, MAX_OUTPUT_LENGTH) +
+          "\n[Output truncated]";
+      }
+
+      // 🎯 Output comparison only if execution OK
+      if (verdict === "OK") {
+        const expected = test.expectedOutput.trim();
+        verdict = output === expected ? "AC" : "WA";
+      }
+
+      if (verdict === "AC") passedCount++;
 
       results.push({
         input: test.input,
-        expectedOutput: expected,
+        expectedOutput: test.expectedOutput,
         actualOutput: output,
-        passed
+        verdict
       });
     }
 
     res.json({
       message:
         passedCount === problem.hiddenTestCases.length
-          ? "All test cases passed ✅"
-          : "Some test cases failed ❌",
+          ? "Accepted"
+          : "Rejected",
       passedCount,
       total: problem.hiddenTestCases.length,
       results
@@ -86,6 +101,39 @@ ${sourceCode}
     res.status(500).json({
       message: "Code execution failed",
       error: error.message
+    });
+  }
+};
+
+// --------------------
+// SAMPLE RUN (NO JUDGE)
+// --------------------
+export const runSample = async (req, res) => {
+  try {
+    const { sourceCode, input } = req.body;
+
+    const wrappedCode = `
+import sys
+data = sys.stdin.read().split()
+it = iter(data)
+def input():
+    return next(it)
+${sourceCode}
+`;
+
+    const response = await axios.post(PISTON_URL, {
+      language: "python",
+      version: "3.10.0",
+      files: [{ name: "main.py", content: wrappedCode }],
+      stdin: input
+    });
+
+    res.json({
+      output: response.data.run.stdout || ""
+    });
+  } catch (err) {
+    res.status(500).json({
+      output: "Error executing sample input"
     });
   }
 };

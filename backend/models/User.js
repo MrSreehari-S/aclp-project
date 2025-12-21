@@ -1,18 +1,32 @@
 import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  eloRating: { type: Number, default: 1000 },
-  matchHistory: [
-    {
-      opponent: String,
-      result: String,
-      ratingChange: Number,
-      date: { type: Date, default: Date.now },
-    },
-  ],
+  username: {
+    type: String,
+    default: "Anonymous",
+    index: true
+  },
+
+  rating: {
+    type: Number,
+    default: 1000
+  },
+
+  // Future-proofing (NOT USED YET)
+  email: {
+    type: String,
+    default: null
+  },
+
+  password: {
+    type: String,
+    default: null
+  },
+
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
 });
 
 export default mongoose.model("User", userSchema);

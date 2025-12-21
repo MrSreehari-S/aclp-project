@@ -1,10 +1,23 @@
 import axios from "axios";
 import Problem from "../models/Problem.js";
+import Submission from "../models/Submission.js";
+import User from "../models/User.js";
+
+
 
 const PISTON_URL = "https://emkc.org/api/v2/piston/execute";
 
 const TIME_LIMIT_MS = 2000;        // informational (Piston enforces internally)
 const MAX_OUTPUT_LENGTH = 10000;  // characters
+
+const getOrCreateUser = async () => {
+  let user = await User.findOne();
+  if (!user) {
+    user = await User.create({});
+  }
+  return user;
+};
+
 
 const languageMap = {
   71: { language: "python", version: "3.10.0", file: "main.py" }
@@ -87,15 +100,32 @@ ${sourceCode}
       });
     }
 
+    const finalVerdict =
+      passedCount === problem.hiddenTestCases.length
+        ? "Accepted"
+        : "Rejected";
+
+    const user = await getOrCreateUser();
+
+    const submission = await Submission.create({
+      userId: user._id,
+      problemId: problem._id,
+      sourceCode,
+      verdict: finalVerdict,
+      passedCount,
+      totalCount: problem.hiddenTestCases.length,
+      results
+    });
+
+
     res.json({
-      message:
-        passedCount === problem.hiddenTestCases.length
-          ? "Accepted"
-          : "Rejected",
+      submissionId: submission._id,
+      verdict: finalVerdict,
       passedCount,
       total: problem.hiddenTestCases.length,
       results
     });
+
 
   } catch (error) {
     res.status(500).json({

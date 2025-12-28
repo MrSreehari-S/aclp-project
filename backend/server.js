@@ -7,6 +7,8 @@ import problemRoutes from "./routes/problemRoutes.js";
 import judgeRoutes from "./routes/judgeRoutes.js";
 import matchRoutes from "./routes/matchRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
+import leaderboardRoutes from "./routes/leaderboardRoutes.js";
+
 
 
 
@@ -22,6 +24,7 @@ app.use(express.json());
 app.use("/api/user", userRoutes);
 app.use("/api/judge", judgeRoutes);
 app.use("/api/problems", problemRoutes);
+app.use("/api/leaderboard", leaderboardRoutes);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/match", matchRoutes);

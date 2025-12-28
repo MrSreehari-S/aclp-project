@@ -8,6 +8,8 @@ import Problem from "../models/Problem.js";
  */
 let waitingQueue = [];
 
+/* ================= MATCHMAKING ================= */
+
 export const startMatchmaking = async (req, res) => {
   try {
     const { userId } = req.body;
@@ -100,5 +102,56 @@ export const startMatchmaking = async (req, res) => {
   } catch (err) {
     console.error("Matchmaking error:", err);
     return res.status(500).json({ message: "Matchmaking failed" });
+  }
+};
+
+/* ================= MATCH HISTORY ================= */
+
+export const getMatchHistory = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    /* 1. Validate user */
+    const userExists = await User.exists({ _id: userId });
+    if (!userExists) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    /* 2. Fetch completed matches */
+    const matches = await Match.find({
+      status: "COMPLETED",
+      "players.userId": userId
+    })
+      .populate("problemId", "title")
+      .sort({ completedAt: -1 });
+
+    /* 3. Shape response */
+    const history = matches.map(match => {
+      const currentPlayer = match.players.find(
+        p => p.userId.toString() === userId
+      );
+
+      const opponent = match.players.find(
+        p => p.userId.toString() !== userId
+      );
+
+      return {
+        matchId: match._id,
+        date: match.completedAt,
+        result: currentPlayer?.result,
+        ratingChange: currentPlayer?.ratingChange ?? 0,
+        opponent: opponent?.username || "Unknown",
+        problem: {
+          id: match.problemId._id,
+          title: match.problemId.title
+        }
+      };
+    });
+
+    return res.json({ matches: history });
+
+  } catch (err) {
+    console.error("Match history error:", err);
+    return res.status(500).json({ message: "Failed to fetch match history" });
   }
 };

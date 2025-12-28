@@ -9,6 +9,7 @@ import Match from "../models/Match.js";
 const PISTON_URL = "https://emkc.org/api/v2/piston/execute";
 const MAX_OUTPUT_LENGTH = 10000;
 const K = 32;
+const SUBMISSION_COOLDOWN_MS = 5000;
 
 const languageMap = {
   71: { language: "python", version: "3.10.0", file: "main.py" }
@@ -28,8 +29,7 @@ ${code}
 
 // Detect advanced input handling
 const isAdvancedPython = (code) =>
-  code.includes("input().split") ||
-  code.includes("sys.stdin");
+  code.includes("input().split") || code.includes("sys.stdin");
 
 // Verdict classifier
 const classifyVerdict = (run, expected) => {
@@ -37,12 +37,8 @@ const classifyVerdict = (run, expected) => {
   const stderr = (run.stderr || "").trim();
 
   if (run.timedOut) return { verdict: "TLE", output: "" };
-
-  // Only treat stderr as error if nothing printed
   if (stderr && !stdout) return { verdict: "RE", output: "" };
-
-  if (stdout === expected.trim())
-    return { verdict: "AC", output: stdout };
+  if (stdout === expected.trim()) return { verdict: "AC", output: stdout };
 
   return { verdict: "WA", output: stdout };
 };
@@ -58,9 +54,12 @@ const calculateElo = (ra, rb, scoreA) =>
 
 export const evaluateCode = async (req, res) => {
   try {
-    const { userId, matchId, problemId, sourceCode, languageId } = req.body;
+    // 🔐 USER ID COMES ONLY FROM JWT
+    const userId = req.user._id;
 
-    /* ---- Validation ---- */
+    const { matchId, problemId, sourceCode, languageId } = req.body;
+
+    /* -------- Validation -------- */
 
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });
@@ -78,7 +77,36 @@ export const evaluateCode = async (req, res) => {
     if (!config)
       return res.status(400).json({ message: "Unsupported language" });
 
-    /* ---- Run Test Cases ---- */
+    /* -------- Submission Limits -------- */
+
+    // One submission per user per match
+    const existingSubmission = await Submission.findOne({
+      userId,
+      matchId
+    });
+
+    if (existingSubmission) {
+      return res.status(429).json({
+        message: "Submission already made for this match"
+      });
+    }
+
+    // Cooldown
+    const lastSubmission = await Submission.findOne({ userId })
+      .sort({ createdAt: -1 });
+
+    if (lastSubmission) {
+      const diff =
+        Date.now() - new Date(lastSubmission.createdAt).getTime();
+
+      if (diff < SUBMISSION_COOLDOWN_MS) {
+        return res.status(429).json({
+          message: "Too many submissions. Please wait a few seconds."
+        });
+      }
+    }
+
+    /* -------- Run Judge -------- */
 
     const advancedPython = isAdvancedPython(sourceCode);
     let passedCount = 0;
@@ -123,7 +151,7 @@ export const evaluateCode = async (req, res) => {
         ? "Accepted"
         : "Rejected";
 
-    /* ---- Save Submission ---- */
+    /* -------- Save Submission -------- */
 
     const submission = await Submission.create({
       userId,
@@ -136,7 +164,7 @@ export const evaluateCode = async (req, res) => {
       results
     });
 
-    /* ---- Elo + Match Resolution ---- */
+    /* -------- Elo + Match Resolution -------- */
 
     const submissions = await Submission.find({ matchId });
 
@@ -184,7 +212,7 @@ export const evaluateCode = async (req, res) => {
       await match.save();
     }
 
-    /* ---- Response ---- */
+    /* -------- Response -------- */
 
     res.json({
       submissionId: submission._id,

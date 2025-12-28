@@ -1,23 +1,27 @@
-// models/User.js
 import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema({
   username: {
     type: String,
-    default: "Anonymous"
+    required: true
   },
+
+  email: {
+    type: String,
+    required: true,
+    unique: true
+  },
+
+  password: {
+    type: String,
+    required: true
+  },
+
   rating: {
     type: Number,
     default: 1000
   },
-  email: {
-    type: String,
-    default: null
-  },
-  password: {
-    type: String,
-    default: null
-  },
+
   createdAt: {
     type: Date,
     default: Date.now

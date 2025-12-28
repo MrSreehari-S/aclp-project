@@ -1,54 +1,37 @@
 import mongoose from "mongoose";
 
-const testCaseResultSchema = new mongoose.Schema({
-  input: String,
-  expectedOutput: String,
-  actualOutput: String,
-  verdict: {
-    type: String,
-    enum: ["AC", "WA", "RE", "TLE"]
-  }
-});
-
 const submissionSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true
+  },
+
   problemId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Problem",
     required: true
   },
 
-  language: {
-    type: String,
-    default: "python"
+  matchId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Match",
+    default: null
   },
 
-  sourceCode: {
-    type: String,
-    required: true
-  },
+  sourceCode: String,
 
-  verdict: {
-    type: String,
-    enum: ["Accepted", "Rejected"],
-    required: true
-  },
+  verdict: String,
 
   passedCount: Number,
   totalCount: Number,
 
-  results: [testCaseResultSchema],
+  results: Array,
 
   createdAt: {
     type: Date,
     default: Date.now
-  },
-
-  userId: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "User",
-  required: true
-}
-
+  }
 });
 
 export default mongoose.model("Submission", submissionSchema);

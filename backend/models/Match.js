@@ -1,14 +1,42 @@
 import mongoose from "mongoose";
 
+const playerSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true
+  },
+
+  username: {
+    type: String,
+    required: true
+  },
+
+  rating: {
+    type: Number,
+    required: true
+  },
+
+  result: {
+    type: String,
+    enum: ["WIN", "LOSS", "DRAW", null],
+    default: null
+  },
+
+  ratingChange: {
+    type: Number,
+    default: 0
+  }
+});
+
 const matchSchema = new mongoose.Schema({
-  players: [
-    {
-      userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-      username: String,
-      rating: Number,
-      result: { type: String, default: null }
+  players: {
+    type: [playerSchema],
+    validate: {
+      validator: (v) => v.length === 2,
+      message: "A match must have exactly 2 players"
     }
-  ],
+  },
 
   problemId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -18,7 +46,7 @@ const matchSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["ONGOING", "FINISHED"],
+    enum: ["ONGOING", "COMPLETED"],
     default: "ONGOING"
   },
 
@@ -27,11 +55,10 @@ const matchSchema = new mongoose.Schema({
     default: Date.now
   },
 
-  timeLimit: {
-    type: Number,
-    default: 120
+  completedAt: {
+    type: Date,
+    default: null
   }
 });
-
 
 export default mongoose.model("Match", matchSchema);

@@ -1,7 +1,6 @@
 import axios from "axios";
 import Problem from "../models/Problem.js";
 import Submission from "../models/Submission.js";
-import User from "../models/User.js";
 import Match from "../models/Match.js";
 
 /* ================= CONFIG ================= */
@@ -54,28 +53,44 @@ const calculateElo = (ra, rb, scoreA) =>
 
 export const evaluateCode = async (req, res) => {
   try {
-    // 🔐 USER ID COMES ONLY FROM JWT
+    /* 🔐 USER COMES FROM JWT */
     const userId = req.user._id;
 
     const { matchId, problemId, sourceCode, languageId } = req.body;
 
-    /* -------- Validation -------- */
-
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    /* -------- Match Validation -------- */
 
     const match = await Match.findById(matchId);
-    if (!match) return res.status(404).json({ message: "Match not found" });
-    if (match.status !== "ONGOING")
+    if (!match) {
+      return res.status(404).json({ message: "Match not found" });
+    }
+
+    if (match.status !== "ONGOING") {
       return res.status(403).json({ message: "Match finished" });
+    }
+
+    // Ensure user belongs to match
+    const isPlayer = match.players.some(p =>
+      p.userId.equals(userId)
+    );
+
+    if (!isPlayer) {
+      return res.status(403).json({
+        message: "You are not a participant in this match"
+      });
+    }
+
+    /* -------- Problem Validation -------- */
 
     const problem = await Problem.findById(problemId);
-    if (!problem)
+    if (!problem) {
       return res.status(404).json({ message: "Problem not found" });
+    }
 
     const config = languageMap[languageId];
-    if (!config)
+    if (!config) {
       return res.status(400).json({ message: "Unsupported language" });
+    }
 
     /* -------- Submission Limits -------- */
 
@@ -91,7 +106,7 @@ export const evaluateCode = async (req, res) => {
       });
     }
 
-    // Cooldown
+    // Global cooldown
     const lastSubmission = await Submission.findOne({ userId })
       .sort({ createdAt: -1 });
 
@@ -116,14 +131,12 @@ export const evaluateCode = async (req, res) => {
       const response = await axios.post(PISTON_URL, {
         language: config.language,
         version: config.version,
-        files: [
-          {
-            name: config.file,
-            content: advancedPython
-              ? sourceCode
-              : wrapPythonCode(sourceCode)
-          }
-        ],
+        files: [{
+          name: config.file,
+          content: advancedPython
+            ? sourceCode
+            : wrapPythonCode(sourceCode)
+        }],
         stdin: test.input
       });
 
@@ -171,8 +184,8 @@ export const evaluateCode = async (req, res) => {
     if (submissions.length === 2) {
       const [s1, s2] = submissions;
 
-      const p1 = await User.findById(s1.userId);
-      const p2 = await User.findById(s2.userId);
+      const p1 = match.players.find(p => p.userId.equals(s1.userId));
+      const p2 = match.players.find(p => p.userId.equals(s2.userId));
 
       let score1 = 0.5;
       let score2 = 0.5;
@@ -184,28 +197,20 @@ export const evaluateCode = async (req, res) => {
         score2 = 1; score1 = 0;
       }
 
-      const newR1 = calculateElo(p1.rating, p2.rating, score1);
-      const newR2 = calculateElo(p2.rating, p1.rating, score2);
+      const user1 = await User.findById(p1.userId);
+      const user2 = await User.findById(p2.userId);
 
-      const delta1 = newR1 - p1.rating;
-      const delta2 = newR2 - p2.rating;
+      const newR1 = calculateElo(user1.rating, user2.rating, score1);
+      const newR2 = calculateElo(user2.rating, user1.rating, score2);
 
-      p1.rating = newR1;
-      p2.rating = newR2;
+      user1.rating = newR1;
+      user2.rating = newR2;
 
-      await p1.save();
-      await p2.save();
+      await user1.save();
+      await user2.save();
 
-      match.players.forEach(p => {
-        if (p.userId.equals(p1._id)) {
-          p.result = score1 === 1 ? "WIN" : score1 === 0 ? "LOSS" : "DRAW";
-          p.ratingChange = delta1;
-        }
-        if (p.userId.equals(p2._id)) {
-          p.result = score2 === 1 ? "WIN" : score2 === 0 ? "LOSS" : "DRAW";
-          p.ratingChange = delta2;
-        }
-      });
+      p1.result = score1 === 1 ? "WIN" : score1 === 0 ? "LOSS" : "DRAW";
+      p2.result = score2 === 1 ? "WIN" : score2 === 0 ? "LOSS" : "DRAW";
 
       match.status = "COMPLETED";
       match.completedAt = new Date();
@@ -214,7 +219,7 @@ export const evaluateCode = async (req, res) => {
 
     /* -------- Response -------- */
 
-    res.json({
+    return res.json({
       submissionId: submission._id,
       verdict: finalVerdict,
       passedCount,
@@ -225,7 +230,9 @@ export const evaluateCode = async (req, res) => {
 
   } catch (err) {
     console.error("Judge error:", err);
-    res.status(500).json({ message: "Code execution failed" });
+    return res.status(500).json({
+      message: "Code execution failed"
+    });
   }
 };
 
@@ -240,23 +247,23 @@ export const runSample = async (req, res) => {
     const response = await axios.post(PISTON_URL, {
       language: "python",
       version: "3.10.0",
-      files: [
-        {
-          name: "main.py",
-          content: advancedPython
-            ? sourceCode
-            : wrapPythonCode(sourceCode)
-        }
-      ],
+      files: [{
+        name: "main.py",
+        content: advancedPython
+          ? sourceCode
+          : wrapPythonCode(sourceCode)
+      }],
       stdin: input
     });
 
-    res.json({
+    return res.json({
       output: response.data.run.stdout || ""
     });
 
   } catch (err) {
     console.error("Sample run error:", err);
-    res.status(500).json({ output: "Error executing sample" });
+    return res.status(500).json({
+      output: "Error executing sample"
+    });
   }
 };

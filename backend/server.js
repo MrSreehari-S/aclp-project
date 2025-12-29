@@ -25,7 +25,6 @@ app.use("/api/user", userRoutes);
 app.use("/api/judge", judgeRoutes);
 app.use("/api/problems", problemRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
-
 app.use("/api/auth", authRoutes);
 app.use("/api/match", matchRoutes);
 

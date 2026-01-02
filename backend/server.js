@@ -8,6 +8,7 @@ import judgeRoutes from "./routes/judgeRoutes.js";
 import matchRoutes from "./routes/matchRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import leaderboardRoutes from "./routes/leaderboardRoutes.js";
+import matchHistoryRoutes from "./routes/matchHistoryRoutes.js";
 
 
 
@@ -27,6 +28,8 @@ app.use("/api/problems", problemRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/match", matchRoutes);
+app.use("/api/match", matchHistoryRoutes);
+
 
 
 

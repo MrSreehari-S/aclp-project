@@ -2,6 +2,7 @@ import axios from "axios";
 import Problem from "../models/Problem.js";
 import Submission from "../models/Submission.js";
 import Match from "../models/Match.js";
+import User from "../models/User.js"; // ✅ FIX 1: REQUIRED IMPORT
 
 /* ================= CONFIG ================= */
 
@@ -16,7 +17,6 @@ const languageMap = {
 
 /* ================= HELPERS ================= */
 
-// Beginner-safe Python wrapper
 const wrapPythonCode = (code) => `
 import sys
 data = sys.stdin.read().split()
@@ -26,11 +26,9 @@ def input():
 ${code}
 `;
 
-// Detect advanced input handling
 const isAdvancedPython = (code) =>
   code.includes("input().split") || code.includes("sys.stdin");
 
-// Verdict classifier
 const classifyVerdict = (run, expected) => {
   const stdout = (run.stdout || "").trim();
   const stderr = (run.stderr || "").trim();
@@ -42,7 +40,6 @@ const classifyVerdict = (run, expected) => {
   return { verdict: "WA", output: stdout };
 };
 
-// Elo helpers
 const expectedScore = (ra, rb) =>
   1 / (1 + Math.pow(10, (rb - ra) / 400));
 
@@ -53,9 +50,7 @@ const calculateElo = (ra, rb, scoreA) =>
 
 export const evaluateCode = async (req, res) => {
   try {
-    /* 🔐 USER COMES FROM JWT */
     const userId = req.user._id;
-
     const { matchId, problemId, sourceCode, languageId } = req.body;
 
     /* -------- Match Validation -------- */
@@ -69,7 +64,6 @@ export const evaluateCode = async (req, res) => {
       return res.status(403).json({ message: "Match finished" });
     }
 
-    // Ensure user belongs to match
     const isPlayer = match.players.some(p =>
       p.userId.equals(userId)
     );
@@ -94,7 +88,6 @@ export const evaluateCode = async (req, res) => {
 
     /* -------- Submission Limits -------- */
 
-    // One submission per user per match
     const existingSubmission = await Submission.findOne({
       userId,
       matchId
@@ -106,7 +99,6 @@ export const evaluateCode = async (req, res) => {
       });
     }
 
-    // Global cooldown
     const lastSubmission = await Submission.findOne({ userId })
       .sort({ createdAt: -1 });
 
@@ -187,6 +179,24 @@ export const evaluateCode = async (req, res) => {
       const p1 = match.players.find(p => p.userId.equals(s1.userId));
       const p2 = match.players.find(p => p.userId.equals(s2.userId));
 
+      // ✅ FIX 2: Defensive guard
+      if (!p1 || !p2) {
+        console.error("Match resolution error: players not found");
+        return res.status(500).json({
+          message: "Match resolution failed"
+        });
+      }
+
+      const user1 = await User.findById(p1.userId);
+      const user2 = await User.findById(p2.userId);
+
+      if (!user1 || !user2) {
+        console.error("Elo error: users not found");
+        return res.status(500).json({
+          message: "User resolution failed"
+        });
+      }
+
       let score1 = 0.5;
       let score2 = 0.5;
 
@@ -197,11 +207,11 @@ export const evaluateCode = async (req, res) => {
         score2 = 1; score1 = 0;
       }
 
-      const user1 = await User.findById(p1.userId);
-      const user2 = await User.findById(p2.userId);
-
       const newR1 = calculateElo(user1.rating, user2.rating, score1);
       const newR2 = calculateElo(user2.rating, user1.rating, score2);
+
+      const delta1 = newR1 - user1.rating;
+      const delta2 = newR2 - user2.rating;
 
       user1.rating = newR1;
       user2.rating = newR2;
@@ -209,15 +219,16 @@ export const evaluateCode = async (req, res) => {
       await user1.save();
       await user2.save();
 
+      // ✅ FIX 3: Persist results properly
       p1.result = score1 === 1 ? "WIN" : score1 === 0 ? "LOSS" : "DRAW";
       p2.result = score2 === 1 ? "WIN" : score2 === 0 ? "LOSS" : "DRAW";
+      p1.ratingChange = delta1;
+      p2.ratingChange = delta2;
 
       match.status = "COMPLETED";
       match.completedAt = new Date();
       await match.save();
     }
-
-    /* -------- Response -------- */
 
     return res.json({
       submissionId: submission._id,

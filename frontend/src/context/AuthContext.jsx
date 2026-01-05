@@ -1,14 +1,15 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import api from "../api/axios";
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Restore auth on refresh
+  /* ================= RESTORE SESSION ================= */
+
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
     const storedToken = localStorage.getItem("token");
@@ -21,10 +22,12 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
+  /* ================= LOGIN ================= */
+
   const login = async (identifier, password) => {
     const res = await api.post("/auth/login", {
       identifier,
-      password,
+      password
     });
 
     const { token, user } = res.data;
@@ -32,9 +35,23 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem("token", token);
     localStorage.setItem("user", JSON.stringify(user));
 
-    setUser(user);
     setToken(token);
+    setUser(user);
   };
+
+  /* ================= REGISTER ================= */
+
+  const register = async (username, email, password) => {
+    const res = await api.post("/auth/register", {
+      username,
+      email,
+      password
+    });
+
+    return res.data;
+  };
+
+  /* ================= LOGOUT ================= */
 
   const logout = () => {
     localStorage.removeItem("token");
@@ -43,9 +60,18 @@ export const AuthProvider = ({ children }) => {
     setToken(null);
   };
 
+  /* ================= CONTEXT ================= */
+
   return (
     <AuthContext.Provider
-      value={{ user, token, login, logout, loading }}
+      value={{
+        user,
+        token,
+        login,
+        register,
+        logout,
+        loading
+      }}
     >
       {children}
     </AuthContext.Provider>

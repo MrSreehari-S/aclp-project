@@ -20,12 +20,25 @@ export const startMatchmaking = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    /* 2. Prevent duplicate queue entry */
+    /* 2. HARD BLOCK: user already in an active match */
+    const activeMatch = await Match.findOne({
+      status: "ONGOING",
+      "players.userId": userId
+    });
+
+    if (activeMatch) {
+      return res.json({
+        status: "already_in_match",
+        matchId: activeMatch._id
+      });
+    }
+
+    /* 3. Prevent duplicate queue entry */
     if (waitingQueue.some(u => u.userId.toString() === userId)) {
       return res.json({ status: "already_queued" });
     }
 
-    /* 3. First user → queue */
+    /* 4. First user → queue */
     if (waitingQueue.length === 0) {
       waitingQueue.push({
         userId: currentUser._id,
@@ -36,10 +49,15 @@ export const startMatchmaking = async (req, res) => {
       return res.json({ status: "queued" });
     }
 
-    /* 4. Second user → match */
+    /* 5. Second user → match */
     const waitingUser = waitingQueue.shift();
 
-    /* 5. Select problem */
+    // Safety: prevent self-match
+    if (waitingUser.userId.toString() === userId) {
+      return res.json({ status: "queued" });
+    }
+
+    /* 6. Select problem */
     const problems = await Problem.find({ difficulty: "easy" });
     if (problems.length === 0) {
       return res.status(500).json({ message: "No problems available" });
@@ -48,7 +66,7 @@ export const startMatchmaking = async (req, res) => {
     const problem =
       problems[Math.floor(Math.random() * problems.length)];
 
-    /* 6. Create match */
+    /* 7. Create match */
     const match = await Match.create({
       players: [
         {
@@ -71,20 +89,10 @@ export const startMatchmaking = async (req, res) => {
       startedAt: new Date()
     });
 
-    /* 7. Respond */
+    /* 8. Respond */
     return res.status(201).json({
       status: "matched",
-      matchId: match._id,
-      problem: {
-        id: problem._id,
-        title: problem.title,
-        description: problem.description,
-        inputFormat: problem.inputFormat,
-        outputFormat: problem.outputFormat,
-        sampleInput: problem.sampleInput,
-        sampleOutput: problem.sampleOutput
-      },
-      players: match.players
+      matchId: match._id
     });
 
   } catch (err) {
@@ -94,7 +102,6 @@ export const startMatchmaking = async (req, res) => {
 };
 
 /* ================= ACTIVE MATCH (POLLING) ================= */
-/* Used by Player 1 while waiting */
 
 export const getActiveMatch = async (req, res) => {
   try {
@@ -127,13 +134,6 @@ export const getMatchHistory = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    /* Validate user */
-    const userExists = await User.exists({ _id: userId });
-    if (!userExists) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    /* Fetch completed matches */
     const matches = await Match.find({
       status: "COMPLETED",
       "players.userId": userId
@@ -141,12 +141,10 @@ export const getMatchHistory = async (req, res) => {
       .populate("problemId", "title")
       .sort({ completedAt: -1 });
 
-    /* Shape response */
     const history = matches.map(match => {
-      const currentPlayer = match.players.find(
+      const me = match.players.find(
         p => p.userId.toString() === userId
       );
-
       const opponent = match.players.find(
         p => p.userId.toString() !== userId
       );
@@ -154,9 +152,9 @@ export const getMatchHistory = async (req, res) => {
       return {
         matchId: match._id,
         date: match.completedAt,
-        result: currentPlayer?.result,
-        ratingChange: currentPlayer?.ratingChange ?? 0,
-        opponent: opponent?.username || "Unknown",
+        result: me?.result,
+        ratingChange: me?.ratingChange ?? 0,
+        opponent: opponent?.username,
         problem: {
           id: match.problemId._id,
           title: match.problemId.title
@@ -173,7 +171,6 @@ export const getMatchHistory = async (req, res) => {
 };
 
 /* ================= MATCH DETAILS ================= */
-/* Required for /match/:matchId page */
 
 export const getMatchById = async (req, res) => {
   try {

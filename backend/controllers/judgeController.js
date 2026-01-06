@@ -2,14 +2,13 @@ import axios from "axios";
 import Problem from "../models/Problem.js";
 import Submission from "../models/Submission.js";
 import Match from "../models/Match.js";
-import User from "../models/User.js"; // ✅ FIX 1: REQUIRED IMPORT
+import User from "../models/User.js";
 
 /* ================= CONFIG ================= */
 
 const PISTON_URL = "https://emkc.org/api/v2/piston/execute";
 const MAX_OUTPUT_LENGTH = 10000;
 const K = 32;
-const SUBMISSION_COOLDOWN_MS = 5000;
 
 const languageMap = {
   71: { language: "python", version: "3.10.0", file: "main.py" }
@@ -53,9 +52,9 @@ export const evaluateCode = async (req, res) => {
     const userId = req.user._id;
     const { matchId, problemId, sourceCode, languageId } = req.body;
 
-    /* -------- Match Validation -------- */
+    /* -------- Fetch Match -------- */
 
-    const match = await Match.findById(matchId);
+    let match = await Match.findById(matchId);
     if (!match) {
       return res.status(404).json({ message: "Match not found" });
     }
@@ -74,19 +73,7 @@ export const evaluateCode = async (req, res) => {
       });
     }
 
-    /* -------- Problem Validation -------- */
-
-    const problem = await Problem.findById(problemId);
-    if (!problem) {
-      return res.status(404).json({ message: "Problem not found" });
-    }
-
-    const config = languageMap[languageId];
-    if (!config) {
-      return res.status(400).json({ message: "Unsupported language" });
-    }
-
-    /* -------- Submission Limits -------- */
+    /* -------- Submission Limit (per match) -------- */
 
     const existingSubmission = await Submission.findOne({
       userId,
@@ -99,18 +86,16 @@ export const evaluateCode = async (req, res) => {
       });
     }
 
-    const lastSubmission = await Submission.findOne({ userId })
-      .sort({ createdAt: -1 });
+    /* -------- Problem -------- */
 
-    if (lastSubmission) {
-      const diff =
-        Date.now() - new Date(lastSubmission.createdAt).getTime();
+    const problem = await Problem.findById(problemId);
+    if (!problem) {
+      return res.status(404).json({ message: "Problem not found" });
+    }
 
-      if (diff < SUBMISSION_COOLDOWN_MS) {
-        return res.status(429).json({
-          message: "Too many submissions. Please wait a few seconds."
-        });
-      }
+    const config = languageMap[languageId];
+    if (!config) {
+      return res.status(400).json({ message: "Unsupported language" });
     }
 
     /* -------- Run Judge -------- */
@@ -158,7 +143,7 @@ export const evaluateCode = async (req, res) => {
 
     /* -------- Save Submission -------- */
 
-    const submission = await Submission.create({
+    await Submission.create({
       userId,
       matchId,
       problemId,
@@ -169,7 +154,17 @@ export const evaluateCode = async (req, res) => {
       results
     });
 
-    /* -------- Elo + Match Resolution -------- */
+    /* -------- Re-fetch Match (CRITICAL) -------- */
+
+    match = await Match.findById(matchId);
+    if (match.status === "COMPLETED") {
+      return res.json({
+        verdict: finalVerdict,
+        matchStatus: "COMPLETED"
+      });
+    }
+
+    /* -------- Resolve Match -------- */
 
     const submissions = await Submission.find({ matchId });
 
@@ -179,23 +174,8 @@ export const evaluateCode = async (req, res) => {
       const p1 = match.players.find(p => p.userId.equals(s1.userId));
       const p2 = match.players.find(p => p.userId.equals(s2.userId));
 
-      // ✅ FIX 2: Defensive guard
-      if (!p1 || !p2) {
-        console.error("Match resolution error: players not found");
-        return res.status(500).json({
-          message: "Match resolution failed"
-        });
-      }
-
       const user1 = await User.findById(p1.userId);
       const user2 = await User.findById(p2.userId);
-
-      if (!user1 || !user2) {
-        console.error("Elo error: users not found");
-        return res.status(500).json({
-          message: "User resolution failed"
-        });
-      }
 
       let score1 = 0.5;
       let score2 = 0.5;
@@ -210,8 +190,11 @@ export const evaluateCode = async (req, res) => {
       const newR1 = calculateElo(user1.rating, user2.rating, score1);
       const newR2 = calculateElo(user2.rating, user1.rating, score2);
 
-      const delta1 = newR1 - user1.rating;
-      const delta2 = newR2 - user2.rating;
+      p1.result = score1 === 1 ? "WIN" : score1 === 0 ? "LOSS" : "DRAW";
+      p2.result = score2 === 1 ? "WIN" : score2 === 0 ? "LOSS" : "DRAW";
+
+      p1.ratingChange = newR1 - user1.rating;
+      p2.ratingChange = newR2 - user2.rating;
 
       user1.rating = newR1;
       user2.rating = newR2;
@@ -219,24 +202,14 @@ export const evaluateCode = async (req, res) => {
       await user1.save();
       await user2.save();
 
-      // ✅ FIX 3: Persist results properly
-      p1.result = score1 === 1 ? "WIN" : score1 === 0 ? "LOSS" : "DRAW";
-      p2.result = score2 === 1 ? "WIN" : score2 === 0 ? "LOSS" : "DRAW";
-      p1.ratingChange = delta1;
-      p2.ratingChange = delta2;
-
       match.status = "COMPLETED";
       match.completedAt = new Date();
       await match.save();
     }
 
     return res.json({
-      submissionId: submission._id,
       verdict: finalVerdict,
-      passedCount,
-      total: problem.hiddenTestCases.length,
-      matchStatus: match.status,
-      results
+      matchStatus: match.status
     });
 
   } catch (err) {
@@ -271,8 +244,7 @@ export const runSample = async (req, res) => {
       output: response.data.run.stdout || ""
     });
 
-  } catch (err) {
-    console.error("Sample run error:", err);
+  } catch {
     return res.status(500).json({
       output: "Error executing sample"
     });

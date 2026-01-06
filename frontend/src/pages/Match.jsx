@@ -225,7 +225,7 @@ Output:
         <div className="flex gap-2 mt-4">
           <button
             onClick={runSample}
-            disabled={runningSample || !!verdict}
+            disabled={runningSample || hasSubmitted}
             className="px-4 py-2 bg-gray-600 text-white rounded disabled:opacity-50"
           >
             {runningSample ? "Running..." : "Run Sample"}
@@ -233,7 +233,7 @@ Output:
 
           <button
             onClick={submitCode}
-            disabled={submitting || !!verdict}
+            disabled={submitting || hasSubmitted}
             className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
           >
             {submitting ? "Submitting..." : "Submit"}

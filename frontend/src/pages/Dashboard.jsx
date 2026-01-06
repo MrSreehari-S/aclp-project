@@ -13,9 +13,29 @@ const Dashboard = () => {
   const [attempts, setAttempts] = useState(0);
   const pollingRef = useRef(null);
 
-  /* ---------------- START MATCH ---------------- */
+  /* ================= CHECK ACTIVE MATCH ON LOAD ================= */
+
+  useEffect(() => {
+    const checkActiveMatch = async () => {
+      try {
+        const res = await api.get(`/match/active/${user.id}`);
+
+        if (res.data.match?.matchId) {
+          navigate(`/match/${res.data.match.matchId}`);
+        }
+      } catch (err) {
+        console.error("Active match check failed");
+      }
+    };
+
+    checkActiveMatch();
+  }, [user.id, navigate]);
+
+  /* ================= START MATCH ================= */
 
   const startMatch = async () => {
+    if (status === "queued") return;
+
     setStatus("idle");
     setAttempts(0);
 
@@ -24,13 +44,13 @@ const Dashboard = () => {
         userId: user.id,
       });
 
-      // Player 1
+      // Player 1 → queued
       if (res.data.status === "queued") {
         setStatus("queued");
         startPolling();
       }
 
-      // Player 2
+      // Player 2 → matched immediately
       if (res.data.status === "matched") {
         navigate(`/match/${res.data.matchId}`);
       }
@@ -40,29 +60,29 @@ const Dashboard = () => {
     }
   };
 
-  /* ---------------- POLLING ---------------- */
+  /* ================= POLLING ================= */
 
   const startPolling = () => {
-  if (pollingRef.current) return;
+    if (pollingRef.current) return;
 
-  pollingRef.current = setInterval(async () => {
-    try {
-      setAttempts((a) => a + 1);
+    pollingRef.current = setInterval(async () => {
+      try {
+        setAttempts((a) => a + 1);
 
-      const res = await api.get(`/match/active/${user.id}`);
+        const res = await api.get(`/match/active/${user.id}`);
 
-      if (res.data.match?.matchId) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-        navigate(`/match/${res.data.match.matchId}`);
+        if (res.data.match?.matchId) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+          navigate(`/match/${res.data.match.matchId}`);
+        }
+      } catch (err) {
+        console.error("Polling failed");
       }
-    } catch (err) {
-      console.error("Polling failed");
-    }
-  }, 3000);
-};
+    }, 3000);
+  };
 
-  /* ---------------- CLEANUP ---------------- */
+  /* ================= CLEANUP ================= */
 
   useEffect(() => {
     return () => {
@@ -72,7 +92,7 @@ const Dashboard = () => {
     };
   }, []);
 
-  /* ---------------- WAITING UI ---------------- */
+  /* ================= WAITING UI ================= */
 
   if (status === "queued") {
     return (
@@ -91,7 +111,7 @@ const Dashboard = () => {
     );
   }
 
-  /* ---------------- DASHBOARD ---------------- */
+  /* ================= DASHBOARD ================= */
 
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center">

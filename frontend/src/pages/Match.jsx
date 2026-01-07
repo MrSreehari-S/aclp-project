@@ -7,7 +7,7 @@ import { useAuth } from "../context/AuthContext";
 const Match = () => {
   const { matchId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [match, setMatch] = useState(null);
@@ -19,10 +19,7 @@ const Match = () => {
 
   const [submitting, setSubmitting] = useState(false);
   const [verdict, setVerdict] = useState("");
-
   const [hasSubmitted, setHasSubmitted] = useState(false);
-
-  /* ================= FETCH MATCH ================= */
 
   const fetchMatch = async () => {
     try {
@@ -38,8 +35,6 @@ const Match = () => {
   useEffect(() => {
     fetchMatch();
   }, [matchId]);
-
-  /* ================= POLLING (FIXED) ================= */
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -58,7 +53,30 @@ const Match = () => {
     return () => clearInterval(interval);
   }, [matchId]);
 
-  /* ================= RUN SAMPLE ================= */
+  //sync rating after match completion
+
+  useEffect(() => {
+    if (!match || match.status !== "COMPLETED") return;
+
+    const myId = user.id.toString();
+
+    const me = match.players.find(
+      (p) =>
+        p.userId?.toString?.() === myId || p.userId?._id?.toString() === myId
+    );
+
+    if (!me) return;
+
+    setUser((prev) => {
+      const updatedUser = {
+        ...prev,
+        rating: prev.rating + (me.ratingChange || 0),
+      };
+
+      localStorage.setItem("user", JSON.stringify(updatedUser));
+      return updatedUser;
+    });
+  }, [match?.status]);
 
   const runSample = async () => {
     if (!sourceCode.trim()) return;
@@ -69,7 +87,7 @@ const Match = () => {
 
       const res = await api.post("/judge/run-sample", {
         sourceCode,
-        input: match.problem.sampleInput
+        input: match.problem.sampleInput,
       });
 
       setSampleOutput(res.data.output || "(no output)");
@@ -80,58 +98,42 @@ const Match = () => {
     }
   };
 
-  /* ================= SUBMIT CODE ================= */
+  const submitCode = async () => {
+    if (!sourceCode.trim()) return;
 
- const submitCode = async () => {
-  if (!sourceCode.trim()) return;
+    try {
+      setSubmitting(true);
+      setVerdict("");
 
-  try {
-    setSubmitting(true);
-    setVerdict("");
+      const res = await api.post("/judge/evaluate", {
+        matchId,
+        problemId: match.problem.id,
+        languageId: 71,
+        sourceCode,
+      });
 
-    const res = await api.post("/judge/evaluate", {
-      matchId,
-      problemId: match.problem.id,
-      languageId: 71,
-      sourceCode
-    });
-
-    setVerdict(res.data.verdict);
-    setHasSubmitted(true); // ✅ IMPORTANT
-  } catch (err) {
-    if (err.response?.status === 429) {
-      setVerdict(err.response.data.message);
-    } else {
-      setVerdict("Submission failed");
+      setVerdict(res.data.verdict);
+      setHasSubmitted(true);
+    } catch (err) {
+      if (err.response?.status === 429) {
+        setVerdict(err.response.data.message);
+      } else {
+        setVerdict("Submission failed");
+      }
+    } finally {
+      setSubmitting(false);
     }
-  } finally {
-    setSubmitting(false);
-  }
-};
-  /* ================= RESULT SCREEN ================= */
+  };
 
   if (match && match.status === "COMPLETED") {
     const myId = user.id.toString();
 
     const me = match.players.find(
       (p) =>
-        p.userId?.toString?.() === myId ||
-        p.userId?._id?.toString() === myId
+        p.userId?.toString?.() === myId || p.userId?._id?.toString() === myId
     );
 
-    const opponent = match.players.find(
-      (p) =>
-        p.userId?.toString?.() !== myId &&
-        p.userId?._id?.toString() !== myId
-    );
-
-    if (!me || !opponent) {
-      return (
-        <p className="text-center mt-10 text-red-500">
-          Failed to resolve match result
-        </p>
-      );
-    }
+    const opponent = match.players.find((p) => p !== me);
 
     const color =
       me.result === "WIN"
@@ -145,13 +147,9 @@ const Match = () => {
         <div className="bg-white p-6 rounded shadow w-96 text-center space-y-4">
           <h2 className="text-2xl font-bold">Match Result</h2>
 
-          <p className={`text-xl font-semibold ${color}`}>
-            {me.result}
-          </p>
+          <p className={`text-xl font-semibold ${color}`}>{me.result}</p>
 
-          <p className="text-sm text-gray-600">
-            vs {opponent.username}
-          </p>
+          <p className="text-sm text-gray-600">vs {opponent.username}</p>
 
           <p className="text-sm">
             Rating change:{" "}
@@ -172,46 +170,15 @@ const Match = () => {
     );
   }
 
-  /* ================= LOADING / ERROR ================= */
-
-  if (loading) {
-    return <p className="text-center mt-10">Loading match...</p>;
-  }
-
-  if (error) {
-    return <p className="text-center text-red-500 mt-10">{error}</p>;
-  }
-
-  /* ================= MAIN MATCH UI ================= */
+  if (loading) return <p className="text-center mt-10">Loading match...</p>;
+  if (error) return <p className="text-center text-red-500 mt-10">{error}</p>;
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 grid grid-cols-2 gap-4">
       {/* PROBLEM */}
       <div className="bg-white p-4 rounded shadow overflow-y-auto">
-        <h2 className="text-xl font-bold mb-2">
-          {match.problem.title}
-        </h2>
-
+        <h2 className="text-xl font-bold mb-2">{match.problem.title}</h2>
         <p className="mb-4">{match.problem.description}</p>
-
-        <h4 className="font-semibold">Input Format</h4>
-        <pre className="bg-gray-100 p-2 mb-2">
-          {match.problem.inputFormat}
-        </pre>
-
-        <h4 className="font-semibold">Output Format</h4>
-        <pre className="bg-gray-100 p-2 mb-2">
-          {match.problem.outputFormat}
-        </pre>
-
-        <h4 className="font-semibold">Sample</h4>
-        <pre className="bg-gray-100 p-2 whitespace-pre-wrap">
-Input:
-{match.problem.sampleInput}
-
-Output:
-{match.problem.sampleOutput}
-        </pre>
       </div>
 
       {/* EDITOR */}
@@ -228,7 +195,7 @@ Output:
             disabled={runningSample || hasSubmitted}
             className="px-4 py-2 bg-gray-600 text-white rounded disabled:opacity-50"
           >
-            {runningSample ? "Running..." : "Run Sample"}
+            Run Sample
           </button>
 
           <button
@@ -236,23 +203,15 @@ Output:
             disabled={submitting || hasSubmitted}
             className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
           >
-            {submitting ? "Submitting..." : "Submit"}
+            Submit
           </button>
         </div>
 
-        {sampleOutput && (
-          <div className="mt-4 bg-black text-green-400 p-3 rounded text-sm whitespace-pre-wrap">
-            {sampleOutput}
-          </div>
-        )}
-
         {verdict && (
-          <p className="mt-4 text-center font-semibold">
-            Verdict: {verdict}
-          </p>
+          <p className="mt-4 text-center font-semibold">Verdict: {verdict}</p>
         )}
 
-          {hasSubmitted && match.status === "ONGOING" && (
+        {hasSubmitted && match.status === "ONGOING" && (
           <p className="mt-2 text-center text-blue-600 font-medium">
             Submission received. Waiting for opponent to submit…
           </p>

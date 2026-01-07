@@ -8,8 +8,6 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  /* ================= RESTORE SESSION ================= */
-
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
     const storedToken = localStorage.getItem("token");
@@ -22,12 +20,10 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
-  /* ================= LOGIN ================= */
-
   const login = async (identifier, password) => {
     const res = await api.post("/auth/login", {
       identifier,
-      password
+      password,
     });
 
     const { token, user } = res.data;
@@ -39,19 +35,15 @@ export const AuthProvider = ({ children }) => {
     setUser(user);
   };
 
-  /* ================= REGISTER ================= */
-
   const register = async (username, email, password) => {
     const res = await api.post("/auth/register", {
       username,
       email,
-      password
+      password,
     });
 
     return res.data;
   };
-
-  /* ================= LOGOUT ================= */
 
   const logout = () => {
     localStorage.removeItem("token");
@@ -59,8 +51,6 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
     setToken(null);
   };
-
-  /* ================= CONTEXT ================= */
 
   return (
     <AuthContext.Provider
@@ -70,7 +60,8 @@ export const AuthProvider = ({ children }) => {
         login,
         register,
         logout,
-        loading
+        loading,
+        setUser
       }}
     >
       {children}

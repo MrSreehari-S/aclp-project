@@ -21,12 +21,9 @@ const Register = () => {
         password,
       });
 
-      // After successful registration → go to login
       navigate("/login");
     } catch (err) {
-      setError(
-        err.response?.data?.message || "Registration failed"
-      );
+      setError(err.response?.data?.message || "Registration failed");
     }
   };
 
@@ -38,9 +35,7 @@ const Register = () => {
       >
         <h2 className="text-xl font-bold text-center">Register</h2>
 
-        {error && (
-          <p className="text-red-500 text-sm text-center">{error}</p>
-        )}
+        {error && <p className="text-red-500 text-sm text-center">{error}</p>}
 
         <input
           className="w-full border p-2 rounded"

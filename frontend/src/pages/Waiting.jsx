@@ -31,7 +31,7 @@ const Waiting = () => {
     };
 
     const interval = setInterval(poll, POLL_INTERVAL);
-    poll(); // run immediately once
+    poll();
 
     return () => clearInterval(interval);
   }, [user, navigate]);
@@ -43,13 +43,9 @@ const Waiting = () => {
 
         <p className="text-blue-600">{status}</p>
 
-        <p className="text-sm text-gray-500">
-          Attempts: {attempts}
-        </p>
+        <p className="text-sm text-gray-500">Attempts: {attempts}</p>
 
-        <p className="text-xs text-gray-400">
-          Do not refresh this page
-        </p>
+        <p className="text-xs text-gray-400">Do not refresh this page</p>
       </div>
     </div>
   );

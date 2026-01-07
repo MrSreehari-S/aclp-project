@@ -7,13 +7,10 @@ const Dashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const [status, setStatus] = useState("idle"); 
-  // idle | queued | error
+  const [status, setStatus] = useState("idle");
 
   const [attempts, setAttempts] = useState(0);
   const pollingRef = useRef(null);
-
-  /* ================= CHECK ACTIVE MATCH ON LOAD ================= */
 
   useEffect(() => {
     const checkActiveMatch = async () => {
@@ -31,8 +28,6 @@ const Dashboard = () => {
     checkActiveMatch();
   }, [user.id, navigate]);
 
-  /* ================= START MATCH ================= */
-
   const startMatch = async () => {
     if (status === "queued") return;
 
@@ -44,13 +39,11 @@ const Dashboard = () => {
         userId: user.id,
       });
 
-      // Player 1 → queued
       if (res.data.status === "queued") {
         setStatus("queued");
         startPolling();
       }
 
-      // Player 2 → matched immediately
       if (res.data.status === "matched") {
         navigate(`/match/${res.data.matchId}`);
       }
@@ -60,7 +53,7 @@ const Dashboard = () => {
     }
   };
 
-  /* ================= POLLING ================= */
+  //polling function
 
   const startPolling = () => {
     if (pollingRef.current) return;
@@ -82,8 +75,6 @@ const Dashboard = () => {
     }, 3000);
   };
 
-  /* ================= CLEANUP ================= */
-
   useEffect(() => {
     return () => {
       if (pollingRef.current) {
@@ -92,7 +83,7 @@ const Dashboard = () => {
     };
   }, []);
 
-  /* ================= WAITING UI ================= */
+  //Waiting screen
 
   if (status === "queued") {
     return (
@@ -100,18 +91,12 @@ const Dashboard = () => {
         <div className="bg-white p-6 rounded shadow w-96 text-center space-y-2">
           <h2 className="text-xl font-bold">Matchmaking</h2>
           <p className="text-blue-600">Waiting for opponent…</p>
-          <p className="text-sm text-gray-500">
-            Attempts: {attempts}
-          </p>
-          <p className="text-xs text-gray-400">
-            Do not refresh this page
-          </p>
+          <p className="text-sm text-gray-500">Attempts: {attempts}</p>
+          <p className="text-xs text-gray-400">Do not refresh this page</p>
         </div>
       </div>
     );
   }
-
-  /* ================= DASHBOARD ================= */
 
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -119,18 +104,13 @@ const Dashboard = () => {
         <h2 className="text-xl font-bold">Dashboard</h2>
 
         <p>
-          Welcome,{" "}
-          <span className="font-semibold">{user.username}</span>
+          Welcome, <span className="font-semibold">{user.username}</span>
         </p>
 
-        <p className="text-sm text-gray-500">
-          Rating: {user.rating}
-        </p>
+        <p className="text-sm text-gray-500">Rating: {user.rating}</p>
 
         {status === "error" && (
-          <p className="text-red-500 text-sm">
-            Failed to start matchmaking
-          </p>
+          <p className="text-red-500 text-sm">Failed to start matchmaking</p>
         )}
 
         <button

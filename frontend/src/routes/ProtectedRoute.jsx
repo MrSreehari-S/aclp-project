@@ -4,7 +4,6 @@ import { useAuth } from "../context/AuthContext";
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
 
-  // Wait until auth restoration finishes
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -12,8 +11,6 @@ const ProtectedRoute = ({ children }) => {
       </div>
     );
   }
-
-  // If user is missing → redirect
   if (!user) {
     return <Navigate to="/" replace />;
   }

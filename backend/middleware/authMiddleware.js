@@ -1,7 +1,6 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
-/* ================= REQUIRED AUTH ================= */
 export const protect = async (req, res, next) => {
   try {
     let token;
@@ -15,7 +14,7 @@ export const protect = async (req, res, next) => {
 
     if (!token) {
       return res.status(401).json({
-        message: "Not authorized, token missing"
+        message: "Not authorized, token missing",
       });
     }
 
@@ -24,22 +23,20 @@ export const protect = async (req, res, next) => {
     const user = await User.findById(decoded.userId).select("-password");
     if (!user) {
       return res.status(401).json({
-        message: "User not found"
+        message: "User not found",
       });
     }
 
-    req.user = user; // 🔑 THIS IS CRITICAL
+    req.user = user;
     next();
-
   } catch (error) {
     console.error("Auth error:", error);
     return res.status(401).json({
-      message: "Not authorized, token invalid"
+      message: "Not authorized, token invalid",
     });
   }
 };
 
-/* ================= OPTIONAL AUTH ================= */
 export const optionalAuth = async (req, res, next) => {
   try {
     let token;
@@ -61,7 +58,6 @@ export const optionalAuth = async (req, res, next) => {
 
     req.user = user || null;
     next();
-
   } catch (error) {
     req.user = null;
     next();

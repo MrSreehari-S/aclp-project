@@ -23,18 +23,18 @@ export const startMatchmaking = async (req, res) => {
     /* 2. HARD BLOCK: user already in an active match */
     const activeMatch = await Match.findOne({
       status: "ONGOING",
-      "players.userId": userId
+      "players.userId": userId,
     });
 
     if (activeMatch) {
       return res.json({
         status: "already_in_match",
-        matchId: activeMatch._id
+        matchId: activeMatch._id,
       });
     }
 
     /* 3. Prevent duplicate queue entry */
-    if (waitingQueue.some(u => u.userId.toString() === userId)) {
+    if (waitingQueue.some((u) => u.userId.toString() === userId)) {
       return res.json({ status: "already_queued" });
     }
 
@@ -43,7 +43,7 @@ export const startMatchmaking = async (req, res) => {
       waitingQueue.push({
         userId: currentUser._id,
         username: currentUser.username,
-        rating: currentUser.rating
+        rating: currentUser.rating,
       });
 
       return res.json({ status: "queued" });
@@ -63,8 +63,7 @@ export const startMatchmaking = async (req, res) => {
       return res.status(500).json({ message: "No problems available" });
     }
 
-    const problem =
-      problems[Math.floor(Math.random() * problems.length)];
+    const problem = problems[Math.floor(Math.random() * problems.length)];
 
     /* 7. Create match */
     const match = await Match.create({
@@ -74,27 +73,26 @@ export const startMatchmaking = async (req, res) => {
           username: waitingUser.username,
           rating: waitingUser.rating,
           result: null,
-          ratingChange: 0
+          ratingChange: 0,
         },
         {
           userId: currentUser._id,
           username: currentUser.username,
           rating: currentUser.rating,
           result: null,
-          ratingChange: 0
-        }
+          ratingChange: 0,
+        },
       ],
       problemId: problem._id,
       status: "ONGOING",
-      startedAt: new Date()
+      startedAt: new Date(),
     });
 
     /* 8. Respond */
     return res.status(201).json({
       status: "matched",
-      matchId: match._id
+      matchId: match._id,
     });
-
   } catch (err) {
     console.error("Matchmaking error:", err);
     return res.status(500).json({ message: "Matchmaking failed" });
@@ -109,7 +107,7 @@ export const getActiveMatch = async (req, res) => {
 
     const match = await Match.findOne({
       status: "ONGOING",
-      "players.userId": userId
+      "players.userId": userId,
     });
 
     if (!match) {
@@ -118,10 +116,9 @@ export const getActiveMatch = async (req, res) => {
 
     return res.json({
       match: {
-        matchId: match._id
-      }
+        matchId: match._id,
+      },
     });
-
   } catch (err) {
     console.error("Active match error:", err);
     return res.status(500).json({ message: "Failed to check active match" });
@@ -136,17 +133,15 @@ export const getMatchHistory = async (req, res) => {
 
     const matches = await Match.find({
       status: "COMPLETED",
-      "players.userId": userId
+      "players.userId": userId,
     })
       .populate("problemId", "title")
       .sort({ completedAt: -1 });
 
-    const history = matches.map(match => {
-      const me = match.players.find(
-        p => p.userId.toString() === userId
-      );
+    const history = matches.map((match) => {
+      const me = match.players.find((p) => p.userId.toString() === userId);
       const opponent = match.players.find(
-        p => p.userId.toString() !== userId
+        (p) => p.userId.toString() !== userId
       );
 
       return {
@@ -157,34 +152,30 @@ export const getMatchHistory = async (req, res) => {
         opponent: opponent?.username,
         problem: {
           id: match.problemId._id,
-          title: match.problemId.title
-        }
+          title: match.problemId.title,
+        },
       };
     });
 
     return res.json({ matches: history });
-
   } catch (err) {
     console.error("Match history error:", err);
     return res.status(500).json({ message: "Failed to fetch match history" });
   }
 };
 
-/* ================= MATCH DETAILS ================= */
-
 export const getMatchById = async (req, res) => {
   try {
     const { matchId } = req.params;
 
-    const match = await Match.findById(matchId)
-      .populate("problemId", {
-        title: 1,
-        description: 1,
-        inputFormat: 1,
-        outputFormat: 1,
-        sampleInput: 1,
-        sampleOutput: 1
-      });
+    const match = await Match.findById(matchId).populate("problemId", {
+      title: 1,
+      description: 1,
+      inputFormat: 1,
+      outputFormat: 1,
+      sampleInput: 1,
+      sampleOutput: 1,
+    });
 
     if (!match) {
       return res.status(404).json({ message: "Match not found" });
@@ -203,10 +194,9 @@ export const getMatchById = async (req, res) => {
         inputFormat: match.problemId.inputFormat,
         outputFormat: match.problemId.outputFormat,
         sampleInput: match.problemId.sampleInput,
-        sampleOutput: match.problemId.sampleOutput
-      }
+        sampleOutput: match.problemId.sampleOutput,
+      },
     });
-
   } catch (err) {
     console.error("Get match error:", err);
     return res.status(500).json({ message: "Failed to fetch match" });

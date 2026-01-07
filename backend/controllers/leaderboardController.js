@@ -17,16 +17,15 @@ export const getLeaderboard = async (req, res) => {
     const leaderboard = users.map((user, index) => ({
       rank: skip + index + 1,
       username: user.username,
-      rating: user.rating
+      rating: user.rating,
     }));
 
     res.json({
       page,
       limit,
       totalUsers,
-      users: leaderboard
+      users: leaderboard,
     });
-
   } catch (err) {
     console.error("Leaderboard error:", err);
     res.status(500).json({ message: "Failed to fetch leaderboard" });

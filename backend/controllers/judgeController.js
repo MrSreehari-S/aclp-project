@@ -4,17 +4,13 @@ import Submission from "../models/Submission.js";
 import Match from "../models/Match.js";
 import User from "../models/User.js";
 
-/* ================= CONFIG ================= */
-
 const PISTON_URL = "https://emkc.org/api/v2/piston/execute";
 const MAX_OUTPUT_LENGTH = 10000;
 const K = 32;
 
 const languageMap = {
-  71: { language: "python", version: "3.10.0", file: "main.py" }
+  71: { language: "python", version: "3.10.0", file: "main.py" },
 };
-
-/* ================= HELPERS ================= */
 
 const wrapPythonCode = (code) => `
 import sys
@@ -39,20 +35,19 @@ const classifyVerdict = (run, expected) => {
   return { verdict: "WA", output: stdout };
 };
 
-const expectedScore = (ra, rb) =>
-  1 / (1 + Math.pow(10, (rb - ra) / 400));
+const expectedScore = (ra, rb) => 1 / (1 + Math.pow(10, (rb - ra) / 400));
 
 const calculateElo = (ra, rb, scoreA) =>
   Math.round(ra + K * (scoreA - expectedScore(ra, rb)));
 
-/* ================= EVALUATE CODE ================= */
+//Evaluate Code
 
 export const evaluateCode = async (req, res) => {
   try {
     const userId = req.user._id;
     const { matchId, problemId, sourceCode, languageId } = req.body;
 
-    /* -------- Fetch Match -------- */
+    //Fetch Match
 
     let match = await Match.findById(matchId);
     if (!match) {
@@ -63,30 +58,24 @@ export const evaluateCode = async (req, res) => {
       return res.status(403).json({ message: "Match finished" });
     }
 
-    const isPlayer = match.players.some(p =>
-      p.userId.equals(userId)
-    );
+    const isPlayer = match.players.some((p) => p.userId.equals(userId));
 
     if (!isPlayer) {
       return res.status(403).json({
-        message: "You are not a participant in this match"
+        message: "You are not a participant in this match",
       });
     }
 
-    /* -------- Submission Limit (per match) -------- */
-
     const existingSubmission = await Submission.findOne({
       userId,
-      matchId
+      matchId,
     });
 
     if (existingSubmission) {
       return res.status(429).json({
-        message: "Submission already made for this match"
+        message: "Submission already made for this match",
       });
     }
-
-    /* -------- Problem -------- */
 
     const problem = await Problem.findById(problemId);
     if (!problem) {
@@ -98,8 +87,6 @@ export const evaluateCode = async (req, res) => {
       return res.status(400).json({ message: "Unsupported language" });
     }
 
-    /* -------- Run Judge -------- */
-
     const advancedPython = isAdvancedPython(sourceCode);
     let passedCount = 0;
     const results = [];
@@ -108,20 +95,17 @@ export const evaluateCode = async (req, res) => {
       const response = await axios.post(PISTON_URL, {
         language: config.language,
         version: config.version,
-        files: [{
-          name: config.file,
-          content: advancedPython
-            ? sourceCode
-            : wrapPythonCode(sourceCode)
-        }],
-        stdin: test.input
+        files: [
+          {
+            name: config.file,
+            content: advancedPython ? sourceCode : wrapPythonCode(sourceCode),
+          },
+        ],
+        stdin: test.input,
       });
 
       const run = response.data.run;
-      const { verdict, output } = classifyVerdict(
-        run,
-        test.expectedOutput
-      );
+      const { verdict, output } = classifyVerdict(run, test.expectedOutput);
 
       if (verdict === "AC") passedCount++;
 
@@ -132,16 +116,12 @@ export const evaluateCode = async (req, res) => {
           output.length > MAX_OUTPUT_LENGTH
             ? output.slice(0, MAX_OUTPUT_LENGTH) + "\n[Truncated]"
             : output,
-        verdict
+        verdict,
       });
     }
 
     const finalVerdict =
-      passedCount === problem.hiddenTestCases.length
-        ? "Accepted"
-        : "Rejected";
-
-    /* -------- Save Submission -------- */
+      passedCount === problem.hiddenTestCases.length ? "Accepted" : "Rejected";
 
     await Submission.create({
       userId,
@@ -151,28 +131,24 @@ export const evaluateCode = async (req, res) => {
       verdict: finalVerdict,
       passedCount,
       totalCount: problem.hiddenTestCases.length,
-      results
+      results,
     });
-
-    /* -------- Re-fetch Match (CRITICAL) -------- */
 
     match = await Match.findById(matchId);
     if (match.status === "COMPLETED") {
       return res.json({
         verdict: finalVerdict,
-        matchStatus: "COMPLETED"
+        matchStatus: "COMPLETED",
       });
     }
-
-    /* -------- Resolve Match -------- */
 
     const submissions = await Submission.find({ matchId });
 
     if (submissions.length === 2) {
       const [s1, s2] = submissions;
 
-      const p1 = match.players.find(p => p.userId.equals(s1.userId));
-      const p2 = match.players.find(p => p.userId.equals(s2.userId));
+      const p1 = match.players.find((p) => p.userId.equals(s1.userId));
+      const p2 = match.players.find((p) => p.userId.equals(s2.userId));
 
       const user1 = await User.findById(p1.userId);
       const user2 = await User.findById(p2.userId);
@@ -181,10 +157,12 @@ export const evaluateCode = async (req, res) => {
       let score2 = 0.5;
 
       if (s1.verdict === "Accepted" && s2.verdict !== "Accepted") {
-        score1 = 1; score2 = 0;
+        score1 = 1;
+        score2 = 0;
       }
       if (s2.verdict === "Accepted" && s1.verdict !== "Accepted") {
-        score2 = 1; score1 = 0;
+        score2 = 1;
+        score1 = 0;
       }
 
       const newR1 = calculateElo(user1.rating, user2.rating, score1);
@@ -209,18 +187,17 @@ export const evaluateCode = async (req, res) => {
 
     return res.json({
       verdict: finalVerdict,
-      matchStatus: match.status
+      matchStatus: match.status,
     });
-
   } catch (err) {
     console.error("Judge error:", err);
     return res.status(500).json({
-      message: "Code execution failed"
+      message: "Code execution failed",
     });
   }
 };
 
-/* ================= RUN SAMPLE ================= */
+//Run Sample Code
 
 export const runSample = async (req, res) => {
   try {
@@ -231,22 +208,21 @@ export const runSample = async (req, res) => {
     const response = await axios.post(PISTON_URL, {
       language: "python",
       version: "3.10.0",
-      files: [{
-        name: "main.py",
-        content: advancedPython
-          ? sourceCode
-          : wrapPythonCode(sourceCode)
-      }],
-      stdin: input
+      files: [
+        {
+          name: "main.py",
+          content: advancedPython ? sourceCode : wrapPythonCode(sourceCode),
+        },
+      ],
+      stdin: input,
     });
 
     return res.json({
-      output: response.data.run.stdout || ""
+      output: response.data.run.stdout || "",
     });
-
   } catch {
     return res.status(500).json({
-      output: "Error executing sample"
+      output: "Error executing sample",
     });
   }
 };

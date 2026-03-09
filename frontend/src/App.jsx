@@ -5,6 +5,8 @@ import Dashboard from "./pages/Dashboard";
 import Match from "./pages/Match";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import { useAuth } from "./context/AuthContext";
+import MatchHistory from "./pages/MatchHistory";
+import Leaderboard from "./pages/Leaderboard";
 
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -55,6 +57,8 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/history" element={<MatchHistory />} />
+        <Route path="/leaderboard" element={<Leaderboard />} />
 
         {/* Default Redirect */}
         <Route path="*" element={<Navigate to="/login" />} />

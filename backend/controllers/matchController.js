@@ -2,25 +2,25 @@ import Match from "../models/Match.js";
 import User from "../models/User.js";
 import Problem from "../models/Problem.js";
 
-/**
- * In-memory queue (Phase 2 only)
- * Later replaced by Redis / DB / sockets
+/*
+  In-memory queue
+  Later replaced by Redis / DB / sockets
  */
 let waitingQueue = [];
 
-/* ================= MATCHMAKING ================= */
+//Matchmaking
 
 export const startMatchmaking = async (req, res) => {
   try {
     const { userId } = req.body;
 
-    /* 1. Validate user */
+    //user validation
     const currentUser = await User.findById(userId);
     if (!currentUser) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    /* 2. HARD BLOCK: user already in an active match */
+    //hard block
     const activeMatch = await Match.findOne({
       status: "ONGOING",
       "players.userId": userId,
@@ -33,12 +33,12 @@ export const startMatchmaking = async (req, res) => {
       });
     }
 
-    /* 3. Prevent duplicate queue entry */
+    //duplicate queue check
     if (waitingQueue.some((u) => u.userId.toString() === userId)) {
       return res.json({ status: "already_queued" });
     }
 
-    /* 4. First user → queue */
+    //first user matching
     if (waitingQueue.length === 0) {
       waitingQueue.push({
         userId: currentUser._id,
@@ -49,7 +49,7 @@ export const startMatchmaking = async (req, res) => {
       return res.json({ status: "queued" });
     }
 
-    /* 5. Second user → match */
+    //second user matching
     const waitingUser = waitingQueue.shift();
 
     // Safety: prevent self-match
@@ -57,7 +57,7 @@ export const startMatchmaking = async (req, res) => {
       return res.json({ status: "queued" });
     }
 
-    /* 6. Select problem */
+    //problem selector
     const problems = await Problem.find({ difficulty: "easy" });
     if (problems.length === 0) {
       return res.status(500).json({ message: "No problems available" });
@@ -65,7 +65,7 @@ export const startMatchmaking = async (req, res) => {
 
     const problem = problems[Math.floor(Math.random() * problems.length)];
 
-    /* 7. Create match */
+    //match creation
     const match = await Match.create({
       players: [
         {
@@ -88,7 +88,7 @@ export const startMatchmaking = async (req, res) => {
       startedAt: new Date(),
     });
 
-    /* 8. Respond */
+    //respond
     return res.status(201).json({
       status: "matched",
       matchId: match._id,
@@ -99,7 +99,7 @@ export const startMatchmaking = async (req, res) => {
   }
 };
 
-/* ================= ACTIVE MATCH (POLLING) ================= */
+//match polling
 
 export const getActiveMatch = async (req, res) => {
   try {
@@ -125,7 +125,7 @@ export const getActiveMatch = async (req, res) => {
   }
 };
 
-/* ================= MATCH HISTORY ================= */
+//match history
 
 export const getMatchHistory = async (req, res) => {
   try {

@@ -5,12 +5,25 @@ export const getMatchHistory = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // Fetch completed matches where user participated
+    // pagination params
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+    const skip = (page - 1) * limit;
+
+    // total matches count
+    const total = await Match.countDocuments({
+      status: "COMPLETED",
+      "players.userId": userId
+    });
+
+    // paginated matches
     const matches = await Match.find({
       status: "COMPLETED",
       "players.userId": userId
     })
       .sort({ completedAt: -1 })
+      .skip(skip)
+      .limit(limit)
       .populate("problemId", "title")
       .lean();
 
@@ -28,14 +41,18 @@ export const getMatchHistory = async (req, res) => {
         opponent: opponent?.username || "Unknown",
         result: self?.result || "DRAW",
         ratingChange: self?.ratingChange || 0,
-        problemTitle: match.problemId?.title || "Unknown",
-        completedAt: match.completedAt
+        problem: {
+          title: match.problemId?.title || "Unknown"
+        },
+        date: match.completedAt
       };
     });
 
     res.json({
-      count: history.length,
-      history
+      page,
+      limit,
+      total,
+      matches: history
     });
 
   } catch (err) {

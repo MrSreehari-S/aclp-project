@@ -4,13 +4,29 @@ import Submission from "../models/Submission.js";
 import Match from "../models/Match.js";
 import User from "../models/User.js";
 
-const PISTON_URL = "https://emkc.org/api/v2/piston/execute";
+/* ================= CONFIG ================= */
+
+
+
+const JUDGE0_URL =
+  "https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=false&wait=true";
+
+const JUDGE0_HEADERS = {
+  "Content-Type": "application/json",
+  "X-RapidAPI-Key": process.env.JUDGE0_API_KEY,
+  "X-RapidAPI-Host": "judge0-ce.p.rapidapi.com",
+};
+
 const MAX_OUTPUT_LENGTH = 10000;
 const K = 32;
 
+/* Judge0 Python language id */
 const languageMap = {
-  71: { language: "python", version: "3.10.0", file: "main.py" },
+  71: { language_id: 71 },
 };
+
+
+/* ================= HELPERS ================= */
 
 const wrapPythonCode = (code) => `
 import sys
@@ -28,84 +44,95 @@ const classifyVerdict = (run, expected) => {
   const stdout = (run.stdout || "").trim();
   const stderr = (run.stderr || "").trim();
 
-  if (run.timedOut) return { verdict: "TLE", output: "" };
+  if (run.status?.description === "Time Limit Exceeded")
+    return { verdict: "TLE", output: "" };
+
   if (stderr && !stdout) return { verdict: "RE", output: "" };
-  if (stdout === expected.trim()) return { verdict: "AC", output: stdout };
+
+  if (stdout === expected.trim())
+    return { verdict: "AC", output: stdout };
 
   return { verdict: "WA", output: stdout };
 };
 
-const expectedScore = (ra, rb) => 1 / (1 + Math.pow(10, (rb - ra) / 400));
+const expectedScore = (ra, rb) =>
+  1 / (1 + Math.pow(10, (rb - ra) / 400));
 
 const calculateElo = (ra, rb, scoreA) =>
   Math.round(ra + K * (scoreA - expectedScore(ra, rb)));
 
-//Evaluate Code
+/* ================= EVALUATE CODE ================= */
 
 export const evaluateCode = async (req, res) => {
   try {
     const userId = req.user._id;
     const { matchId, problemId, sourceCode, languageId } = req.body;
 
-    //Fetch Match
+    /* -------- Match Validation -------- */
 
     let match = await Match.findById(matchId);
-    if (!match) {
+    if (!match)
       return res.status(404).json({ message: "Match not found" });
-    }
 
-    if (match.status !== "ONGOING") {
+    if (match.status !== "ONGOING")
       return res.status(403).json({ message: "Match finished" });
-    }
 
-    const isPlayer = match.players.some((p) => p.userId.equals(userId));
+    const isPlayer = match.players.some((p) =>
+      p.userId.equals(userId)
+    );
 
-    if (!isPlayer) {
+    if (!isPlayer)
       return res.status(403).json({
         message: "You are not a participant in this match",
       });
-    }
 
     const existingSubmission = await Submission.findOne({
       userId,
       matchId,
     });
 
-    if (existingSubmission) {
+    if (existingSubmission)
       return res.status(429).json({
         message: "Submission already made for this match",
       });
-    }
+
+    /* -------- Problem Validation -------- */
 
     const problem = await Problem.findById(problemId);
-    if (!problem) {
+    if (!problem)
       return res.status(404).json({ message: "Problem not found" });
-    }
 
     const config = languageMap[languageId];
-    if (!config) {
+    if (!config)
       return res.status(400).json({ message: "Unsupported language" });
-    }
+
+    /* -------- Run Judge -------- */
 
     const advancedPython = isAdvancedPython(sourceCode);
+
     let passedCount = 0;
     const results = [];
 
     for (const test of problem.hiddenTestCases) {
-      const response = await axios.post(PISTON_URL, {
-        language: config.language,
-        version: config.version,
-        files: [
-          {
-            name: config.file,
-            content: advancedPython ? sourceCode : wrapPythonCode(sourceCode),
-          },
-        ],
-        stdin: test.input,
-      });
 
-      const run = response.data.run;
-      const { verdict, output } = classifyVerdict(run, test.expectedOutput);
+      const response = await axios.post(
+        JUDGE0_URL,
+        {
+          language_id: config.language_id,
+          source_code: advancedPython
+            ? sourceCode
+            : wrapPythonCode(sourceCode),
+          stdin: test.input,
+        },
+        { headers: JUDGE0_HEADERS }
+      );
+
+      const run = response.data;
+
+      const { verdict, output } = classifyVerdict(
+        run,
+        test.expectedOutput
+      );
 
       if (verdict === "AC") passedCount++;
 
@@ -121,7 +148,11 @@ export const evaluateCode = async (req, res) => {
     }
 
     const finalVerdict =
-      passedCount === problem.hiddenTestCases.length ? "Accepted" : "Rejected";
+      passedCount === problem.hiddenTestCases.length
+        ? "Accepted"
+        : "Rejected";
+
+    /* -------- Save Submission -------- */
 
     await Submission.create({
       userId,
@@ -134,7 +165,10 @@ export const evaluateCode = async (req, res) => {
       results,
     });
 
+    /* -------- Match Resolution -------- */
+
     match = await Match.findById(matchId);
+
     if (match.status === "COMPLETED") {
       return res.json({
         verdict: finalVerdict,
@@ -145,10 +179,16 @@ export const evaluateCode = async (req, res) => {
     const submissions = await Submission.find({ matchId });
 
     if (submissions.length === 2) {
+
       const [s1, s2] = submissions;
 
-      const p1 = match.players.find((p) => p.userId.equals(s1.userId));
-      const p2 = match.players.find((p) => p.userId.equals(s2.userId));
+      const p1 = match.players.find((p) =>
+        p.userId.equals(s1.userId)
+      );
+
+      const p2 = match.players.find((p) =>
+        p.userId.equals(s2.userId)
+      );
 
       const user1 = await User.findById(p1.userId);
       const user2 = await User.findById(p2.userId);
@@ -160,6 +200,7 @@ export const evaluateCode = async (req, res) => {
         score1 = 1;
         score2 = 0;
       }
+
       if (s2.verdict === "Accepted" && s1.verdict !== "Accepted") {
         score2 = 1;
         score1 = 0;
@@ -189,15 +230,17 @@ export const evaluateCode = async (req, res) => {
       verdict: finalVerdict,
       matchStatus: match.status,
     });
+
   } catch (err) {
     console.error("Judge error:", err);
+
     return res.status(500).json({
       message: "Code execution failed",
     });
   }
 };
 
-//Run Sample Code
+/* ================= RUN SAMPLE ================= */
 
 export const runSample = async (req, res) => {
   try {
@@ -205,22 +248,26 @@ export const runSample = async (req, res) => {
 
     const advancedPython = isAdvancedPython(sourceCode);
 
-    const response = await axios.post(PISTON_URL, {
-      language: "python",
-      version: "3.10.0",
-      files: [
-        {
-          name: "main.py",
-          content: advancedPython ? sourceCode : wrapPythonCode(sourceCode),
-        },
-      ],
-      stdin: input,
-    });
+    const response = await axios.post(
+      JUDGE0_URL,
+      {
+        language_id: 71,
+        source_code: advancedPython
+          ? sourceCode
+          : wrapPythonCode(sourceCode),
+        stdin: input,
+      },
+      { headers: JUDGE0_HEADERS }
+    );
 
     return res.json({
-      output: response.data.run.stdout || "",
+      output: response.data.stdout || "",
     });
-  } catch {
+
+  } catch (err) {
+
+    console.error("Sample run error:", err);
+
     return res.status(500).json({
       output: "Error executing sample",
     });

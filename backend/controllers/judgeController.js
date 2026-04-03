@@ -4,10 +4,6 @@ import Submission from "../models/Submission.js";
 import Match from "../models/Match.js";
 import User from "../models/User.js";
 
-/* ================= CONFIG ================= */
-
-
-
 const JUDGE0_URL =
   "https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=false&wait=true";
 
@@ -25,8 +21,6 @@ const languageMap = {
   71: { language_id: 71 },
 };
 
-
-/* ================= HELPERS ================= */
 
 const wrapPythonCode = (code) => `
 import sys

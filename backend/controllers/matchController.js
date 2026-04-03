@@ -2,10 +2,6 @@ import Match from "../models/Match.js";
 import User from "../models/User.js";
 import Problem from "../models/Problem.js";
 
-/*
-  In-memory queue
-  Later replaced by Redis / DB / sockets
- */
 let waitingQueue = [];
 
 //Matchmaking

@@ -16,11 +16,9 @@ const JUDGE0_HEADERS = {
 const MAX_OUTPUT_LENGTH = 10000;
 const K = 32;
 
-/* Judge0 Python language id */
 const languageMap = {
   71: { language_id: 71 },
 };
-
 
 const wrapPythonCode = (code) => `
 import sys
@@ -62,14 +60,33 @@ export const evaluateCode = async (req, res) => {
     const userId = req.user._id;
     const { matchId, problemId, sourceCode, languageId } = req.body;
 
-    /* -------- Match Validation -------- */
+    // -------- Prevent empty code --------
+    if (!sourceCode || !sourceCode.trim()) {
+      return res.status(400).json({
+        message: "Code cannot be empty",
+      });
+    }
 
+    // -------- Match Validation --------
     let match = await Match.findById(matchId);
+
     if (!match)
       return res.status(404).json({ message: "Match not found" });
 
     if (match.status !== "ONGOING")
       return res.status(403).json({ message: "Match finished" });
+
+    // -------- TIMER CHECK --------
+    const now = new Date();
+    const endTime = new Date(
+      match.startTime.getTime() + match.timeLimit * 1000
+    );
+
+    if (now > endTime) {
+      return res.status(403).json({
+        message: "Time is over",
+      });
+    }
 
     const isPlayer = match.players.some((p) =>
       p.userId.equals(userId)
@@ -90,25 +107,24 @@ export const evaluateCode = async (req, res) => {
         message: "Submission already made for this match",
       });
 
-    /* -------- Problem Validation -------- */
-
+    // -------- Problem Validation --------
     const problem = await Problem.findById(problemId);
+
     if (!problem)
       return res.status(404).json({ message: "Problem not found" });
 
     const config = languageMap[languageId];
+
     if (!config)
       return res.status(400).json({ message: "Unsupported language" });
 
-    /* -------- Run Judge -------- */
-
+    // -------- Run Judge --------
     const advancedPython = isAdvancedPython(sourceCode);
 
     let passedCount = 0;
     const results = [];
 
     for (const test of problem.hiddenTestCases) {
-
       const response = await axios.post(
         JUDGE0_URL,
         {
@@ -122,6 +138,10 @@ export const evaluateCode = async (req, res) => {
       );
 
       const run = response.data;
+
+      if (!run) {
+        throw new Error("Judge0 returned empty response");
+      }
 
       const { verdict, output } = classifyVerdict(
         run,
@@ -146,8 +166,7 @@ export const evaluateCode = async (req, res) => {
         ? "Accepted"
         : "Rejected";
 
-    /* -------- Save Submission -------- */
-
+    // -------- Save Submission --------
     await Submission.create({
       userId,
       matchId,
@@ -159,8 +178,7 @@ export const evaluateCode = async (req, res) => {
       results,
     });
 
-    /* -------- Match Resolution -------- */
-
+    // -------- Match Resolution --------
     match = await Match.findById(matchId);
 
     if (match.status === "COMPLETED") {
@@ -172,14 +190,45 @@ export const evaluateCode = async (req, res) => {
 
     const submissions = await Submission.find({ matchId });
 
-    if (submissions.length === 2) {
+    // -------- TIMEOUT HANDLING --------
+    const now2 = new Date();
+    const endTime2 = new Date(
+      match.startTime.getTime() + match.timeLimit * 1000
+    );
 
+    if (now2 > endTime2 && submissions.length < 2) {
+      const submittedUserIds = submissions.map((s) =>
+        s.userId.toString()
+      );
+
+      match.players.forEach((p) => {
+        if (!submittedUserIds.includes(p.userId.toString())) {
+          p.result = "LOSS";
+          p.ratingChange = 0;
+        } else {
+          p.result = "WIN";
+          p.ratingChange = 0;
+        }
+      });
+
+      match.status = "COMPLETED";
+      match.completedAt = new Date();
+
+      await match.save();
+
+      return res.json({
+        verdict: finalVerdict,
+        matchStatus: "COMPLETED",
+      });
+    }
+
+    // -------- NORMAL MATCH END --------
+    if (submissions.length === 2) {
       const [s1, s2] = submissions;
 
       const p1 = match.players.find((p) =>
         p.userId.equals(s1.userId)
       );
-
       const p2 = match.players.find((p) =>
         p.userId.equals(s2.userId)
       );
@@ -203,8 +252,10 @@ export const evaluateCode = async (req, res) => {
       const newR1 = calculateElo(user1.rating, user2.rating, score1);
       const newR2 = calculateElo(user2.rating, user1.rating, score2);
 
-      p1.result = score1 === 1 ? "WIN" : score1 === 0 ? "LOSS" : "DRAW";
-      p2.result = score2 === 1 ? "WIN" : score2 === 0 ? "LOSS" : "DRAW";
+      p1.result =
+        score1 === 1 ? "WIN" : score1 === 0 ? "LOSS" : "DRAW";
+      p2.result =
+        score2 === 1 ? "WIN" : score2 === 0 ? "LOSS" : "DRAW";
 
       p1.ratingChange = newR1 - user1.rating;
       p2.ratingChange = newR2 - user2.rating;
@@ -217,6 +268,7 @@ export const evaluateCode = async (req, res) => {
 
       match.status = "COMPLETED";
       match.completedAt = new Date();
+
       await match.save();
     }
 
@@ -259,7 +311,6 @@ export const runSample = async (req, res) => {
     });
 
   } catch (err) {
-
     console.error("Sample run error:", err);
 
     return res.status(500).json({

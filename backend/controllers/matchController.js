@@ -1,22 +1,24 @@
 import Match from "../models/Match.js";
 import User from "../models/User.js";
 import Problem from "../models/Problem.js";
+import Submission from "../models/Submission.js"; // ✅ IMPORTANT
+
+import { getDifficultyFromRating } from "../utils/difficulty.js";
+import { getTimeLimit } from "../utils/timeConfig.js";
 
 let waitingQueue = [];
 
-//Matchmaking
+// ================= MATCHMAKING =================
 
 export const startMatchmaking = async (req, res) => {
   try {
     const { userId } = req.body;
 
-    //user validation
     const currentUser = await User.findById(userId);
     if (!currentUser) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    //hard block
     const activeMatch = await Match.findOne({
       status: "ONGOING",
       "players.userId": userId,
@@ -29,12 +31,10 @@ export const startMatchmaking = async (req, res) => {
       });
     }
 
-    //duplicate queue check
     if (waitingQueue.some((u) => u.userId.toString() === userId)) {
       return res.json({ status: "already_queued" });
     }
 
-    //first user matching
     if (waitingQueue.length === 0) {
       waitingQueue.push({
         userId: currentUser._id,
@@ -45,23 +45,36 @@ export const startMatchmaking = async (req, res) => {
       return res.json({ status: "queued" });
     }
 
-    //second user matching
     const waitingUser = waitingQueue.shift();
 
-    // Safety: prevent self-match
     if (waitingUser.userId.toString() === userId) {
       return res.json({ status: "queued" });
     }
 
-    //problem selector
-    const problems = await Problem.find({ difficulty: "easy" });
+    // ================= DIFFICULTY =================
+
+    const avgRating = Math.round(
+      (waitingUser.rating + currentUser.rating) / 2
+    );
+
+    const difficulty = getDifficultyFromRating(avgRating);
+
+    let problems = await Problem.find({ difficulty });
+
+    if (problems.length === 0) {
+      console.warn("No problems for difficulty:", difficulty);
+      problems = await Problem.find();
+    }
+
     if (problems.length === 0) {
       return res.status(500).json({ message: "No problems available" });
     }
 
-    const problem = problems[Math.floor(Math.random() * problems.length)];
+    const problem =
+      problems[Math.floor(Math.random() * problems.length)];
 
-    //match creation
+    const timeLimit = getTimeLimit(problem.difficulty);
+
     const match = await Match.create({
       players: [
         {
@@ -81,10 +94,10 @@ export const startMatchmaking = async (req, res) => {
       ],
       problemId: problem._id,
       status: "ONGOING",
-      startedAt: new Date(),
+      startTime: new Date(),
+      timeLimit,
     });
 
-    //respond
     return res.status(201).json({
       status: "matched",
       matchId: match._id,
@@ -95,7 +108,7 @@ export const startMatchmaking = async (req, res) => {
   }
 };
 
-//match polling
+// ================= ACTIVE MATCH =================
 
 export const getActiveMatch = async (req, res) => {
   try {
@@ -121,7 +134,7 @@ export const getActiveMatch = async (req, res) => {
   }
 };
 
-//match history
+// ================= MATCH HISTORY =================
 
 export const getMatchHistory = async (req, res) => {
   try {
@@ -135,7 +148,9 @@ export const getMatchHistory = async (req, res) => {
       .sort({ completedAt: -1 });
 
     const history = matches.map((match) => {
-      const me = match.players.find((p) => p.userId.toString() === userId);
+      const me = match.players.find(
+        (p) => p.userId.toString() === userId
+      );
       const opponent = match.players.find(
         (p) => p.userId.toString() !== userId
       );
@@ -160,6 +175,8 @@ export const getMatchHistory = async (req, res) => {
   }
 };
 
+// ================= GET MATCH =================
+
 export const getMatchById = async (req, res) => {
   try {
     const { matchId } = req.params;
@@ -177,10 +194,49 @@ export const getMatchById = async (req, res) => {
       return res.status(404).json({ message: "Match not found" });
     }
 
+    // ================= AUTO TIMEOUT FIX =================
+
+    if (match.status === "ONGOING") {
+      const now = new Date();
+      const endTime = new Date(
+        match.startTime.getTime() + match.timeLimit * 1000
+      );
+
+      if (now > endTime) {
+        const submissions = await Submission.find({ matchId });
+
+        if (submissions.length === 0) {
+          // BOTH DID NOT SUBMIT → DRAW
+          match.players.forEach((p) => {
+            p.result = "DRAW";
+            p.ratingChange = 0;
+          });
+        } else if (submissions.length === 1) {
+          // ONE SUBMITTED → WIN / LOSS
+          const submittedUserId = submissions[0].userId.toString();
+
+          match.players.forEach((p) => {
+            if (p.userId.toString() === submittedUserId) {
+              p.result = "WIN";
+            } else {
+              p.result = "LOSS";
+            }
+            p.ratingChange = 0;
+          });
+        }
+
+        match.status = "COMPLETED";
+        match.completedAt = new Date();
+
+        await match.save();
+      }
+    }
+
     return res.json({
       matchId: match._id,
       status: match.status,
-      startedAt: match.startedAt,
+      startTime: match.startTime,
+      timeLimit: match.timeLimit,
       completedAt: match.completedAt || null,
       players: match.players,
       problem: {

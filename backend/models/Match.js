@@ -19,7 +19,7 @@ const playerSchema = new mongoose.Schema({
 
   result: {
     type: String,
-    enum: ["WIN", "LOSS", "DRAW", null],
+    enum: ["WIN", "LOSS", "DRAW"],
     default: null
   },
 
@@ -50,15 +50,23 @@ const matchSchema = new mongoose.Schema({
     default: "ONGOING"
   },
 
-  startedAt: {
+  // ✅ KEEP ONLY ONE TIME FIELD
+  startTime: {
     type: Date,
     default: Date.now
+  },
+
+  // ✅ TIMER (safe default)
+  timeLimit: {
+    type: Number,
+    default: 600 // fallback (10 min)
   },
 
   completedAt: {
     type: Date,
     default: null
   }
-});
+
+}, { timestamps: true }); // optional but useful
 
 export default mongoose.model("Match", matchSchema);

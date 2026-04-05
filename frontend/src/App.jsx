@@ -7,6 +7,7 @@ import ProtectedRoute from "./routes/ProtectedRoute";
 import { useAuth } from "./context/AuthContext";
 import MatchHistory from "./pages/MatchHistory";
 import Leaderboard from "./pages/Leaderboard";
+import MatchSummary from "./pages/MatchSummary";
 
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -20,6 +21,7 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+
         {/* Public Routes */}
         <Route
           path="/login"
@@ -57,11 +59,23 @@ function App() {
             </ProtectedRoute>
           }
         />
+
+        {/* ✅ ADD SUMMARY ROUTE HERE */}
+        <Route
+          path="/match/:matchId/summary"
+          element={
+            <ProtectedRoute>
+              <MatchSummary />
+            </ProtectedRoute>
+          }
+        />
+
         <Route path="/history" element={<MatchHistory />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
 
         {/* Default Redirect */}
         <Route path="*" element={<Navigate to="/login" />} />
+
       </Routes>
     </BrowserRouter>
   );

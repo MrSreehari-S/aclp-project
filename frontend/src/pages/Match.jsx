@@ -17,7 +17,7 @@ const Match = () => {
   const [verdict, setVerdict] = useState("");
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
-  // ✅ STEP 1 — Timer state
+  // Timer state
   const [timeLeft, setTimeLeft] = useState(0);
   const [timerExpired, setTimerExpired] = useState(false);
 
@@ -94,7 +94,7 @@ const Match = () => {
     return () => clearInterval(interval);
   }, [match]);
 
-  // ✅ STEP 3 — Auto-submit on timeout
+  //Auto-submit on timeout
   useEffect(() => {
     if (timerExpired && !hasSubmitted && match?.status === "ONGOING") {
       submitCode();
@@ -598,7 +598,7 @@ const Match = () => {
               </div>
             )}
 
-            {/* ✅ STEP 7 — Waiting message after submission */}
+            {/* Waiting message after submission */}
             {hasSubmitted && match.status === "ONGOING" && (
               <div className="bg-blue-500/20 border-2 border-blue-500/50 backdrop-blur-xl text-blue-200 p-3 rounded-2xl text-center animate-pulse">
                 <div className="flex items-center justify-center space-x-2">

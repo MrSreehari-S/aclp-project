@@ -26,6 +26,9 @@ app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/match", matchRoutes);
 app.use("/api/match", matchHistoryRoutes);
+app.get("/", (req, res) => {
+  res.send("Backend is running 🚀");
+});
 
 
 

@@ -260,7 +260,7 @@ export const getMatchById = async (req, res) => {
       results: s.results,
     }));
 
-    // ================= RESPONSE =================
+    //RESPONSE
 
     return res.json({
       matchId: match._id,

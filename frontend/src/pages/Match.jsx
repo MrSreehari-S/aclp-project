@@ -21,6 +21,9 @@ const Match = () => {
   const [timeLeft, setTimeLeft] = useState(0);
   const [timerExpired, setTimerExpired] = useState(false);
 
+  // Mobile tab state: "problem" | "editor"
+  const [mobileTab, setMobileTab] = useState("problem");
+
   /* FETCH MATCH */
 
   const fetchMatch = async () => {
@@ -34,7 +37,6 @@ const Match = () => {
     }
   };
 
-  // Initial fetch when page loads
   useEffect(() => {
     fetchMatch();
   }, [matchId]);
@@ -43,9 +45,7 @@ const Match = () => {
 
   useEffect(() => {
     if (!match || match.status === "COMPLETED") return;
-
     const interval = setInterval(fetchMatch, 2000);
-
     return () => clearInterval(interval);
   }, [match?.status, matchId]);
 
@@ -53,48 +53,41 @@ const Match = () => {
 
   useEffect(() => {
     if (!match || match.status !== "COMPLETED") return;
-
     const myId = user.id.toString();
-
     const me = match.players.find(
       (p) =>
         p.userId?.toString?.() === myId || p.userId?._id?.toString() === myId,
     );
-
     if (!me) return;
-
     setUser((prev) => {
       const updatedUser = {
         ...prev,
         rating: prev.rating + (me.ratingChange || 0),
       };
-
       localStorage.setItem("user", JSON.stringify(updatedUser));
       return updatedUser;
     });
   }, [match?.status]);
 
-  // ✅ STEP 2 — Calculate time left
+  /* TIMER */
+
   useEffect(() => {
     if (!match || match.status !== "ONGOING") return;
-
     const calculateTime = () => {
       const start = new Date(match.startTime).getTime();
       const end = start + match.timeLimit * 1000;
       const now = Date.now();
       const remaining = Math.max(0, Math.floor((end - now) / 1000));
       setTimeLeft(remaining);
-      if (remaining <= 0) {
-        setTimerExpired(true);
-      }
+      if (remaining <= 0) setTimerExpired(true);
     };
-
     calculateTime();
     const interval = setInterval(calculateTime, 1000);
     return () => clearInterval(interval);
   }, [match]);
 
-  //Auto-submit on timeout
+  /* AUTO-SUBMIT */
+
   useEffect(() => {
     if (timerExpired && !hasSubmitted && match?.status === "ONGOING") {
       submitCode();
@@ -105,10 +98,8 @@ const Match = () => {
 
   const runSample = async () => {
     if (!sourceCode.trim()) return;
-
     try {
       setRunningSample(true);
-
       await api.post("/judge/run-sample", {
         sourceCode,
         input: match.problem.sampleInput,
@@ -122,17 +113,14 @@ const Match = () => {
 
   const submitCode = async () => {
     if (!sourceCode.trim()) return;
-
     try {
       setSubmitting(true);
-
       const res = await api.post("/judge/evaluate", {
         matchId,
         problemId: match.problem.id,
-        languageId: 71, // Python
+        languageId: 71,
         sourceCode,
       });
-
       setVerdict(res.data.verdict);
       setHasSubmitted(true);
     } catch (err) {
@@ -146,12 +134,10 @@ const Match = () => {
 
   if (match && match.status === "COMPLETED") {
     const myId = user.id.toString();
-
     const me = match.players.find(
       (p) =>
         p.userId?.toString?.() === myId || p.userId?._id?.toString() === myId,
     );
-
     const opponent = match.players.find(
       (p) =>
         p.userId?.toString?.() !== myId && p.userId?._id?.toString() !== myId,
@@ -198,7 +184,6 @@ const Match = () => {
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
-        
         {/* Animated Background Blobs */}
         <div className="absolute inset-0">
           <div className={`absolute top-1/4 left-1/4 w-96 h-96 ${config.blobColor} rounded-full filter blur-3xl opacity-20 animate-blob`}></div>
@@ -207,70 +192,61 @@ const Match = () => {
         </div>
 
         <div className="relative z-10 w-full max-w-2xl animate-fade-in">
-          
-          {/* Result Card */}
-          <div className={`bg-gradient-to-br ${config.bgGradient} backdrop-blur-xl p-8 md:p-12 rounded-3xl shadow-2xl border-4 ${config.borderColor} border-opacity-50`}>
-            
+          <div className={`bg-gradient-to-br ${config.bgGradient} backdrop-blur-xl p-6 sm:p-8 md:p-12 rounded-3xl shadow-2xl border-4 ${config.borderColor} border-opacity-50`}>
             {/* Result Icon and Title */}
-            <div className="text-center mb-8">
-              <div className="inline-block mb-6 animate-bounce-slow">
-                <div className={`w-32 h-32 mx-auto bg-gradient-to-br ${config.gradient} rounded-full flex items-center justify-center shadow-2xl ${config.shadowColor} transform hover:scale-110 transition-transform duration-300`}>
-                  <span className="text-7xl">{config.emoji}</span>
+            <div className="text-center mb-6 sm:mb-8">
+              <div className="inline-block mb-4 sm:mb-6 animate-bounce-slow">
+                <div className={`w-24 h-24 sm:w-32 sm:h-32 mx-auto bg-gradient-to-br ${config.gradient} rounded-full flex items-center justify-center shadow-2xl ${config.shadowColor} transform hover:scale-110 transition-transform duration-300`}>
+                  <span className="text-5xl sm:text-7xl">{config.emoji}</span>
                 </div>
               </div>
-              <h1 className={`text-5xl md:text-7xl font-bold bg-gradient-to-r ${config.gradient} bg-clip-text text-transparent mb-4`}>
+              <h1 className={`text-4xl sm:text-5xl md:text-7xl font-bold bg-gradient-to-r ${config.gradient} bg-clip-text text-transparent mb-4`}>
                 {config.title}
               </h1>
               <div className={`h-2 w-48 bg-gradient-to-r ${config.gradient} mx-auto rounded-full`}></div>
             </div>
 
             {/* Match Details */}
-            <div className="space-y-6">
-              
+            <div className="space-y-4 sm:space-y-6">
               {/* Players */}
-              <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20">
+              <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border border-white/20">
                 <div className="flex items-center justify-between">
-                  {/* You */}
                   <div className="text-center flex-1">
-                    <div className={`w-20 h-20 mx-auto bg-gradient-to-br ${config.gradient} rounded-full flex items-center justify-center text-white font-bold text-2xl shadow-lg mb-3`}>
+                    <div className={`w-14 h-14 sm:w-20 sm:h-20 mx-auto bg-gradient-to-br ${config.gradient} rounded-full flex items-center justify-center text-white font-bold text-xl sm:text-2xl shadow-lg mb-2 sm:mb-3`}>
                       {user.username.charAt(0).toUpperCase()}
                     </div>
-                    <p className="text-white font-bold text-lg">{user.username}</p>
-                    <p className="text-purple-300 text-sm">You</p>
+                    <p className="text-white font-bold text-sm sm:text-lg truncate max-w-[80px] sm:max-w-none mx-auto">{user.username}</p>
+                    <p className="text-purple-300 text-xs sm:text-sm">You</p>
                   </div>
-
-                  {/* VS Divider */}
-                  <div className="flex-shrink-0 px-6">
-                    <div className="text-4xl font-bold text-white opacity-50">VS</div>
+                  <div className="flex-shrink-0 px-3 sm:px-6">
+                    <div className="text-2xl sm:text-4xl font-bold text-white opacity-50">VS</div>
                   </div>
-
-                  {/* Opponent */}
                   <div className="text-center flex-1">
-                    <div className="w-20 h-20 mx-auto bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-2xl shadow-lg mb-3">
+                    <div className="w-14 h-14 sm:w-20 sm:h-20 mx-auto bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-xl sm:text-2xl shadow-lg mb-2 sm:mb-3">
                       {opponent.username.charAt(0).toUpperCase()}
                     </div>
-                    <p className="text-white font-bold text-lg">{opponent.username}</p>
-                    <p className="text-purple-300 text-sm">Opponent</p>
+                    <p className="text-white font-bold text-sm sm:text-lg truncate max-w-[80px] sm:max-w-none mx-auto">{opponent.username}</p>
+                    <p className="text-purple-300 text-xs sm:text-sm">Opponent</p>
                   </div>
                 </div>
               </div>
 
               {/* Rating Change */}
-              <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20">
+              <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border border-white/20">
                 <div className="text-center">
                   <p className="text-purple-300 text-sm uppercase tracking-wide mb-2">Rating Change</p>
                   <div className="flex items-center justify-center space-x-3">
                     {me.ratingChange > 0 && (
-                      <svg className={`w-8 h-8 ${config.textColor}`} fill="currentColor" viewBox="0 0 20 20">
+                      <svg className={`w-6 h-6 sm:w-8 sm:h-8 ${config.textColor}`} fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
                       </svg>
                     )}
                     {me.ratingChange < 0 && (
-                      <svg className={`w-8 h-8 ${config.textColor}`} fill="currentColor" viewBox="0 0 20 20">
+                      <svg className={`w-6 h-6 sm:w-8 sm:h-8 ${config.textColor}`} fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 012 0v7.586l2.293-2.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
                     )}
-                    <span className={`text-6xl font-bold ${config.textColor}`}>
+                    <span className={`text-5xl sm:text-6xl font-bold ${config.textColor}`}>
                       {me.ratingChange > 0 ? "+" : ""}
                       {me.ratingChange}
                     </span>
@@ -279,20 +255,19 @@ const Match = () => {
               </div>
 
               {/* Motivational Message */}
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-                <p className="text-center text-purple-200 text-lg italic">
-                  {me.result === "WIN" 
-                    ? "Outstanding performance! Keep climbing the ranks!" 
+              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border border-white/10">
+                <p className="text-center text-purple-200 text-base sm:text-lg italic">
+                  {me.result === "WIN"
+                    ? "Outstanding performance! Keep climbing the ranks!"
                     : me.result === "LOSS"
                     ? "Every defeat is a lesson. Come back stronger!"
                     : "Well fought! Both players showed great skill!"}
                 </p>
               </div>
-
             </div>
 
             {/* Action Buttons */}
-            <div className="mt-8 space-y-4">
+            <div className="mt-6 sm:mt-8 space-y-4">
               <button
                 onClick={() => navigate("/dashboard")}
                 className="w-full group relative overflow-hidden bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4 rounded-2xl font-bold text-lg shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-purple-500/50 active:scale-95"
@@ -332,9 +307,7 @@ const Match = () => {
                 </button>
               </div>
             </div>
-
           </div>
-
         </div>
 
         <style>{`
@@ -392,259 +365,377 @@ const Match = () => {
 
   /* MATCH UI */
 
+  const timerDisplay = timerExpired
+    ? "00:00"
+    : `${Math.floor(timeLeft / 60)}:${String(timeLeft % 60).padStart(2, "0")}`;
+
+  const timerClass = timerExpired
+    ? "bg-red-600 text-white"
+    : timeLeft <= 10
+    ? "bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/50"
+    : timeLeft <= 30
+    ? "bg-orange-500/60 text-orange-100"
+    : "bg-black/40 text-green-400";
+
   return (
-    <div className="h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4 overflow-hidden">
-      <div className="h-full max-w-[1800px] mx-auto grid grid-cols-1 lg:grid-cols-2 gap-4">
-        
-        {/* PROBLEM PANEL */}
-        <div className="bg-white/10 backdrop-blur-xl p-6 rounded-3xl shadow-2xl border border-white/20 overflow-y-auto">
-          <div className="mb-6">
-            <h2 className="text-3xl font-bold text-white mb-2">{match.problem.title}</h2>
-            <div className="h-1 w-24 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full"></div>
+    <>
+      {/* ===================== DESKTOP LAYOUT (lg+) ===================== */}
+      <div className="hidden lg:flex h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4 overflow-hidden">
+        <div className="h-full w-full max-w-[1800px] mx-auto grid grid-cols-2 gap-4">
+
+          {/* PROBLEM PANEL */}
+          <div className="bg-white/10 backdrop-blur-xl p-6 rounded-3xl shadow-2xl border border-white/20 overflow-y-auto">
+            <ProblemPanel match={match} />
           </div>
 
-          <div className="bg-yellow-500/20 border-2 border-yellow-500/50 backdrop-blur-xl p-4 rounded-2xl mb-6">
-            <div className="flex items-start space-x-3">
-              <svg className="w-6 h-6 text-yellow-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-              <div className="flex-1">
-                <p className="font-bold text-yellow-200 mb-2">⚠️ Important Instructions</p>
-                <ul className="list-disc ml-4 space-y-1 text-yellow-100 text-sm">
-                  <li>Do <strong>NOT</strong> print prompts like <code className="bg-black/30 px-1 rounded">"Enter a number"</code></li>
-                  <li>Use <code className="bg-black/30 px-1 rounded">input()</code> directly to read input</li>
-                  <li>Print <strong>ONLY</strong> the final output</li>
-                </ul>
-                <div className="mt-3 bg-black/40 p-3 rounded-xl font-mono text-xs text-green-300">
-                  <p className="text-green-400 font-bold mb-1">✅ Correct pattern:</p>
-                  <code>a = input()</code><br/>
-                  <code>b = input()</code><br/>
-                  <code>print(final_answer)</code>
-                </div>
-              </div>
+          {/* EDITOR PANEL */}
+          <div className="bg-white/10 backdrop-blur-xl p-4 rounded-3xl shadow-2xl border border-white/20 flex flex-col h-full overflow-hidden">
+            <EditorHeader timerDisplay={timerDisplay} timerClass={timerClass} />
+            <div className="flex-1 mb-4 rounded-lg overflow-hidden min-h-0">
+              <CodeEditor
+                value={sourceCode}
+                onChange={setSourceCode}
+                disabled={hasSubmitted || timerExpired}
+              />
             </div>
-          </div>
-
-          <div className="space-y-6 text-purple-100">
-            <div>
-              <h4 className="font-bold text-white text-lg mb-2 flex items-center">
-                <svg className="w-5 h-5 mr-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Problem Description
-              </h4>
-              <p className="whitespace-pre-wrap bg-white/5 p-4 rounded-xl">{match.problem.description}</p>
-            </div>
-
-            <div>
-              <h4 className="font-bold text-white text-lg mb-2 flex items-center">
-                <svg className="w-5 h-5 mr-2 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-                </svg>
-                Input Format
-              </h4>
-              <pre className="bg-black/40 p-4 rounded-xl text-green-300 font-mono text-sm overflow-x-auto">
-                {match.problem.inputFormat}
-              </pre>
-            </div>
-
-            <div>
-              <h4 className="font-bold text-white text-lg mb-2 flex items-center">
-                <svg className="w-5 h-5 mr-2 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                </svg>
-                Output Format
-              </h4>
-              <pre className="bg-black/40 p-4 rounded-xl text-pink-300 font-mono text-sm overflow-x-auto">
-                {match.problem.outputFormat}
-              </pre>
-            </div>
-
-            <div>
-              <h4 className="font-bold text-white text-lg mb-2 flex items-center">
-                <svg className="w-5 h-5 mr-2 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
-                </svg>
-                Sample Test Case
-              </h4>
-              <div className="bg-black/40 p-4 rounded-xl font-mono text-sm">
-                <div className="mb-3">
-                  <p className="text-green-400 font-bold mb-1">Input:</p>
-                  <pre className="text-green-300 whitespace-pre-wrap">{match.problem.sampleInput}</pre>
-                </div>
-                <div>
-                  <p className="text-blue-400 font-bold mb-1">Output:</p>
-                  <pre className="text-blue-300 whitespace-pre-wrap">{match.problem.sampleOutput}</pre>
-                </div>
-              </div>
+            <div className="flex-shrink-0 overflow-y-auto max-h-[40%] scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/20">
+              <EditorFooter
+                runSample={runSample}
+                submitCode={submitCode}
+                runningSample={runningSample}
+                submitting={submitting}
+                hasSubmitted={hasSubmitted}
+                timerExpired={timerExpired}
+                verdict={verdict}
+                matchStatus={match.status}
+              />
             </div>
           </div>
         </div>
 
-        {/* EDITOR PANEL */}
-        <div className="bg-white/10 backdrop-blur-xl p-4 rounded-3xl shadow-2xl border border-white/20 flex flex-col h-full">
+        <MatchStyles />
+      </div>
 
-          {/* ✅ STEP 6 — Timer + Editor Header */}
-          <div className="mb-4 flex-shrink-0 flex items-center justify-between">
-            <div>
-              <h3 className="text-2xl font-bold text-white flex items-center">
-                <svg className="w-6 h-6 mr-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                </svg>
-                Code Editor
-              </h3>
-              <div className="h-1 w-20 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full mt-2"></div>
-            </div>
+      {/* ===================== MOBILE LAYOUT (< lg) ===================== */}
+      <div className="flex lg:hidden flex-col h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 overflow-hidden">
 
-            {/* Timer display */}
-            <div className="flex flex-col items-end">
-              <p className="text-purple-300 text-xs uppercase tracking-wide mb-1">Time Left</p>
-              <span
-                className={`text-xl font-mono font-bold px-4 py-2 rounded-xl transition-all duration-300 ${
-                  timerExpired
-                    ? "bg-red-600 text-white"
-                    : timeLeft <= 10
-                    ? "bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/50"
-                    : timeLeft <= 30
-                    ? "bg-orange-500/60 text-orange-100"
-                    : "bg-black/40 text-green-400"
-                }`}
-              >
-                {timerExpired
-                  ? "00:00"
-                  : `${Math.floor(timeLeft / 60)}:${String(timeLeft % 60).padStart(2, "0")}`}
-              </span>
-            </div>
+        {/* Mobile Top Bar: Timer + Tabs */}
+        <div className="flex-shrink-0 px-3 pt-3 pb-0 space-y-2">
+          {/* Timer row */}
+          <div className="flex items-center justify-between bg-white/10 backdrop-blur-xl rounded-2xl px-4 py-2 border border-white/20">
+            <span className="text-purple-300 text-xs uppercase tracking-wide font-semibold">Time Left</span>
+            <span className={`text-lg font-mono font-bold px-3 py-1 rounded-lg transition-all duration-300 ${timerClass}`}>
+              {timerDisplay}
+            </span>
           </div>
 
-          {/* ✅ STEP 4 — Disabled editor when time ends or after submit */}
-          <div className="flex-1 mb-4 rounded-lg overflow-hidden h-full">
-            <CodeEditor
-              value={sourceCode}
-              onChange={setSourceCode}
-              disabled={hasSubmitted || timerExpired}
-            />
+          {/* Tab switcher */}
+          <div className="flex bg-white/10 backdrop-blur-xl rounded-2xl p-1 border border-white/20">
+            <button
+              onClick={() => setMobileTab("problem")}
+              className={`flex-1 flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl font-semibold text-sm transition-all duration-200 ${
+                mobileTab === "problem"
+                  ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg"
+                  : "text-purple-300 hover:text-white"
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span>Problem</span>
+            </button>
+            <button
+              onClick={() => setMobileTab("editor")}
+              className={`flex-1 flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl font-semibold text-sm transition-all duration-200 ${
+                mobileTab === "editor"
+                  ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg"
+                  : "text-purple-300 hover:text-white"
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+              <span>Editor</span>
+              {verdict && (
+                <span className={`w-2 h-2 rounded-full ${verdict.includes("Accepted") || verdict.includes("PASS") ? "bg-green-400" : "bg-red-400"}`}></span>
+              )}
+            </button>
           </div>
+        </div>
 
-          <div className="flex-shrink-0 space-y-3">
-            <div className="flex gap-3">
-              <button
-                onClick={runSample}
-                disabled={runningSample || hasSubmitted || timerExpired}
-                className="flex-1 group relative overflow-hidden bg-gradient-to-r from-gray-600 to-gray-700 text-white py-3 px-4 rounded-xl font-bold shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-gray-500/50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-gray-700 to-gray-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                <div className="relative flex items-center justify-center space-x-2">
-                  {runningSample ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                      <span>Running...</span>
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span>Run Sample</span>
-                    </>
-                  )}
-                </div>
-              </button>
-
-              {/* ✅ STEP 5 — Disable submit button on timerExpired too */}
-              <button
-                onClick={submitCode}
-                disabled={submitting || hasSubmitted || timerExpired}
-                className="flex-1 group relative overflow-hidden bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-xl font-bold shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-purple-500/50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                <div className="relative flex items-center justify-center space-x-2">
-                  {submitting ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                      <span>Submitting...</span>
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span>Submit Solution</span>
-                    </>
-                  )}
-                </div>
-              </button>
+        {/* Mobile Panel Content */}
+        <div className="flex-1 min-h-0 p-3 pt-2">
+          {/* Problem Tab */}
+          {mobileTab === "problem" && (
+            <div className="h-full bg-white/10 backdrop-blur-xl p-4 rounded-3xl shadow-2xl border border-white/20 overflow-y-auto">
+              <ProblemPanel match={match} />
             </div>
+          )}
 
-            {verdict && (
-              <div className={`${
-                verdict.includes("Accepted") || verdict.includes("PASS") 
-                  ? "bg-green-500/20 border-green-500/50 text-green-200" 
-                  : "bg-red-500/20 border-red-500/50 text-red-200"
-              } backdrop-blur-xl border-2 p-3 rounded-2xl text-center font-bold`}>
-                <div className="flex items-center justify-center space-x-2">
-                  {verdict.includes("Accepted") || verdict.includes("PASS") ? (
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                    </svg>
-                  )}
-                  <span>Verdict: {verdict}</span>
-                </div>
+          {/* Editor Tab */}
+          {mobileTab === "editor" && (
+            <div className="h-full bg-white/10 backdrop-blur-xl p-4 rounded-3xl shadow-2xl border border-white/20 flex flex-col">
+              <div className="flex-1 mb-3 rounded-lg overflow-hidden min-h-0">
+                <CodeEditor
+                  value={sourceCode}
+                  onChange={setSourceCode}
+                  disabled={hasSubmitted || timerExpired}
+                />
               </div>
-            )}
+              <EditorFooter
+                runSample={runSample}
+                submitCode={submitCode}
+                runningSample={runningSample}
+                submitting={submitting}
+                hasSubmitted={hasSubmitted}
+                timerExpired={timerExpired}
+                verdict={verdict}
+                matchStatus={match.status}
+              />
+            </div>
+          )}
+        </div>
 
-            {/* Waiting message after submission */}
-            {hasSubmitted && match.status === "ONGOING" && (
-              <div className="bg-blue-500/20 border-2 border-blue-500/50 backdrop-blur-xl text-blue-200 p-3 rounded-2xl text-center animate-pulse">
-                <div className="flex items-center justify-center space-x-2">
-                  <div className="w-3 h-3 bg-blue-400 rounded-full animate-ping"></div>
-                  <span className="font-semibold text-sm">Submission received. Waiting for opponent...</span>
-                </div>
-              </div>
-            )}
+        <MatchStyles />
+      </div>
+    </>
+  );
+};
 
-            {/* Timer expired banner */}
-            {timerExpired && !hasSubmitted && (
-              <div className="bg-red-500/20 border-2 border-red-500/50 backdrop-blur-xl text-red-200 p-3 rounded-2xl text-center">
-                <div className="flex items-center justify-center space-x-2">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                  </svg>
-                  <span className="font-semibold text-sm">Time's up! Auto-submitting...</span>
-                </div>
-              </div>
-            )}
+/* ─────────────────────────────────────────────
+   SHARED SUB-COMPONENTS
+───────────────────────────────────────────── */
+
+const ProblemPanel = ({ match }) => (
+  <>
+    <div className="mb-5">
+      <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">{match.problem.title}</h2>
+      <div className="h-1 w-24 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full"></div>
+    </div>
+
+    <div className="bg-yellow-500/20 border-2 border-yellow-500/50 backdrop-blur-xl p-4 rounded-2xl mb-6">
+      <div className="flex items-start space-x-3">
+        <svg className="w-6 h-6 text-yellow-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+        </svg>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-yellow-200 mb-2">⚠️ Important Instructions</p>
+          <ul className="list-disc ml-4 space-y-1 text-yellow-100 text-sm">
+            <li>Do <strong>NOT</strong> print prompts like <code className="bg-black/30 px-1 rounded">"Enter a number"</code></li>
+            <li>Use <code className="bg-black/30 px-1 rounded">input()</code> directly to read input</li>
+            <li>Print <strong>ONLY</strong> the final output</li>
+          </ul>
+          <div className="mt-3 bg-black/40 p-3 rounded-xl font-mono text-xs text-green-300">
+            <p className="text-green-400 font-bold mb-1">✅ Correct pattern:</p>
+            <code>a = input()</code><br />
+            <code>b = input()</code><br />
+            <code>print(final_answer)</code>
           </div>
         </div>
       </div>
-
-      <style>{`
-        @keyframes fade-in {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes blob {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(30px, -50px) scale(1.1); }
-          66% { transform: translate(-20px, 20px) scale(0.9); }
-        }
-        @keyframes bounce-slow {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-20px); }
-        }
-        .animate-fade-in { animation: fade-in 0.6s ease-out; }
-        .animate-blob { animation: blob 7s infinite; }
-        .animate-bounce-slow { animation: bounce-slow 2s ease-in-out infinite; }
-        .animation-delay-2000 { animation-delay: 2s; }
-        .animation-delay-4000 { animation-delay: 4s; }
-      `}</style>
     </div>
-  );
-};
+
+    <div className="space-y-6 text-purple-100">
+      <div>
+        <h4 className="font-bold text-white text-lg mb-2 flex items-center">
+          <svg className="w-5 h-5 mr-2 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Problem Description
+        </h4>
+        <p className="whitespace-pre-wrap bg-white/5 p-4 rounded-xl text-sm sm:text-base">{match.problem.description}</p>
+      </div>
+
+      <div>
+        <h4 className="font-bold text-white text-lg mb-2 flex items-center">
+          <svg className="w-5 h-5 mr-2 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+          </svg>
+          Input Format
+        </h4>
+        <pre className="bg-black/40 p-4 rounded-xl text-green-300 font-mono text-xs sm:text-sm overflow-x-auto">
+          {match.problem.inputFormat}
+        </pre>
+      </div>
+
+      <div>
+        <h4 className="font-bold text-white text-lg mb-2 flex items-center">
+          <svg className="w-5 h-5 mr-2 text-pink-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+          </svg>
+          Output Format
+        </h4>
+        <pre className="bg-black/40 p-4 rounded-xl text-pink-300 font-mono text-xs sm:text-sm overflow-x-auto">
+          {match.problem.outputFormat}
+        </pre>
+      </div>
+
+      <div>
+        <h4 className="font-bold text-white text-lg mb-2 flex items-center">
+          <svg className="w-5 h-5 mr-2 text-purple-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+          </svg>
+          Sample Test Case
+        </h4>
+        <div className="bg-black/40 p-4 rounded-xl font-mono text-xs sm:text-sm">
+          <div className="mb-3">
+            <p className="text-green-400 font-bold mb-1">Input:</p>
+            <pre className="text-green-300 whitespace-pre-wrap">{match.problem.sampleInput}</pre>
+          </div>
+          <div>
+            <p className="text-blue-400 font-bold mb-1">Output:</p>
+            <pre className="text-blue-300 whitespace-pre-wrap">{match.problem.sampleOutput}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </>
+);
+
+const EditorHeader = ({ timerDisplay, timerClass }) => (
+  <div className="mb-4 flex-shrink-0 flex items-center justify-between">
+    <div>
+      <h3 className="text-2xl font-bold text-white flex items-center">
+        <svg className="w-6 h-6 mr-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+        </svg>
+        Code Editor
+      </h3>
+      <div className="h-1 w-20 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full mt-2"></div>
+    </div>
+    <div className="flex flex-col items-end">
+      <p className="text-purple-300 text-xs uppercase tracking-wide mb-1">Time Left</p>
+      <span className={`text-xl font-mono font-bold px-4 py-2 rounded-xl transition-all duration-300 ${timerClass}`}>
+        {timerDisplay}
+      </span>
+    </div>
+  </div>
+);
+
+const EditorFooter = ({
+  runSample, submitCode,
+  runningSample, submitting,
+  hasSubmitted, timerExpired,
+  verdict, matchStatus,
+}) => (
+  <div className="flex-shrink-0 space-y-3">
+    <div className="flex gap-3">
+      <button
+        onClick={runSample}
+        disabled={runningSample || hasSubmitted || timerExpired}
+        className="flex-1 group relative overflow-hidden bg-gradient-to-r from-gray-600 to-gray-700 text-white py-3 px-4 rounded-xl font-bold shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-gray-500/50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-gray-700 to-gray-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        <div className="relative flex items-center justify-center space-x-2">
+          {runningSample ? (
+            <>
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              <span className="text-sm sm:text-base">Running...</span>
+            </>
+          ) : (
+            <>
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-sm sm:text-base">Run Sample</span>
+            </>
+          )}
+        </div>
+      </button>
+
+      <button
+        onClick={submitCode}
+        disabled={submitting || hasSubmitted || timerExpired}
+        className="flex-1 group relative overflow-hidden bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-xl font-bold shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-purple-500/50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        <div className="relative flex items-center justify-center space-x-2">
+          {submitting ? (
+            <>
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              <span className="text-sm sm:text-base">Submitting...</span>
+            </>
+          ) : (
+            <>
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-sm sm:text-base">Submit</span>
+            </>
+          )}
+        </div>
+      </button>
+    </div>
+
+    {verdict && (
+      <div className={`${
+        verdict.includes("Accepted") || verdict.includes("PASS")
+          ? "bg-green-500/20 border-green-500/50 text-green-200"
+          : "bg-red-500/20 border-red-500/50 text-red-200"
+      } backdrop-blur-xl border-2 p-3 rounded-2xl text-center font-bold`}>
+        <div className="flex items-center justify-center space-x-2">
+          {verdict.includes("Accepted") || verdict.includes("PASS") ? (
+            <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+          ) : (
+            <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+          )}
+          <span className="text-sm sm:text-base">Verdict: {verdict}</span>
+        </div>
+      </div>
+    )}
+
+    {hasSubmitted && matchStatus === "ONGOING" && (
+      <div className="bg-blue-500/20 border-2 border-blue-500/50 backdrop-blur-xl text-blue-200 p-3 rounded-2xl text-center animate-pulse">
+        <div className="flex items-center justify-center space-x-2">
+          <div className="w-3 h-3 bg-blue-400 rounded-full animate-ping flex-shrink-0"></div>
+          <span className="font-semibold text-xs sm:text-sm">Submission received. Waiting for opponent...</span>
+        </div>
+      </div>
+    )}
+
+    {timerExpired && !hasSubmitted && (
+      <div className="bg-red-500/20 border-2 border-red-500/50 backdrop-blur-xl text-red-200 p-3 rounded-2xl text-center">
+        <div className="flex items-center justify-center space-x-2">
+          <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+          </svg>
+          <span className="font-semibold text-xs sm:text-sm">Time's up! Auto-submitting...</span>
+        </div>
+      </div>
+    )}
+  </div>
+);
+
+const MatchStyles = () => (
+  <style>{`
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes blob {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(30px, -50px) scale(1.1); }
+      66% { transform: translate(-20px, 20px) scale(0.9); }
+    }
+    @keyframes bounce-slow {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-20px); }
+    }
+    .animate-fade-in { animation: fade-in 0.6s ease-out; }
+    .animate-blob { animation: blob 7s infinite; }
+    .animate-bounce-slow { animation: bounce-slow 2s ease-in-out infinite; }
+    .animation-delay-2000 { animation-delay: 2s; }
+    .animation-delay-4000 { animation-delay: 4s; }
+    .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 999px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.35); }
+  `}</style>
+);
 
 export default Match;

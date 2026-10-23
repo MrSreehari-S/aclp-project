@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "https://aclp-project.onrender.com/api",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "https://aclp-project.onrender.com/api",
 });
 
 api.interceptors.request.use(

@@ -2,22 +2,29 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import AuthenticatedLayout from "../components/AuthenticatedLayout";
+import CodeEditor from "../components/CodeEditor";
 
 const MatchSummary = () => {
   const { matchId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const currentUserId = user?.id || user?._id;
 
   const [match, setMatch] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState("myCode"); // "myCode" | "opponentCode" | "problem"
+  const [copiedCode, setCopiedCode] = useState(false);
 
   useEffect(() => {
     const fetchMatch = async () => {
       try {
+        setLoading(true);
         const res = await api.get(`/match/${matchId}`);
         setMatch(res.data);
-      } catch {
-        console.error("Failed to load match summary");
+      } catch (err) {
+        setError(err.response?.data?.message || "Failed to load match summary");
       } finally {
         setLoading(false);
       }
@@ -28,353 +35,390 @@ const MatchSummary = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="w-20 h-20 mx-auto relative">
-            <div className="absolute inset-0 border-4 border-purple-300/30 rounded-full animate-ping"></div>
-            <div className="absolute inset-0 border-4 border-t-purple-400 border-r-pink-400 border-b-transparent border-l-transparent rounded-full animate-spin"></div>
+      <AuthenticatedLayout>
+        <div className="min-h-[70vh] flex items-center justify-center">
+          <div className="text-center space-y-3">
+            <div className="w-10 h-10 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mx-auto" />
+            <p className="text-xs font-mono text-slate-400">LOADING MATCH POST-MORTEM...</p>
           </div>
-          <p className="text-purple-200 text-lg font-medium">Loading match summary...</p>
         </div>
-      </div>
+      </AuthenticatedLayout>
     );
   }
 
-  if (!match) {
+  if (error || !match) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
-        <div className="bg-red-500/20 backdrop-blur-xl border border-red-500/50 text-red-200 p-8 rounded-3xl max-w-md text-center">
-          <svg className="w-16 h-16 mx-auto mb-4" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-          </svg>
-          <p className="text-xl font-bold">No match data found</p>
+      <AuthenticatedLayout>
+        <div className="min-h-[70vh] flex items-center justify-center p-4">
+          <div className="max-w-md w-full p-8 rounded-3xl bg-[#090D18]/90 border border-rose-500/30 text-center space-y-4">
+            <span className="text-4xl">⚠️</span>
+            <h2 className="text-xl font-bold text-white">Summary Unavailable</h2>
+            <p className="text-xs text-slate-400">{error || "No match record found."}</p>
+            <button
+              onClick={() => navigate("/history")}
+              className="px-6 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] text-white text-xs font-semibold transition-all"
+            >
+              Back to Battle Log
+            </button>
+          </div>
         </div>
-      </div>
+      </AuthenticatedLayout>
     );
   }
 
-  const myId = user.id.toString();
-
-  const mySubmission = match.submissions?.find(
-    (s) => s.userId?.toString() === myId || s.userId?._id?.toString() === myId
-  );
-
-  const opponentSubmission = match.submissions?.find(
-    (s) => s.userId?.toString() !== myId && s.userId?._id?.toString() !== myId
-  );
+  const myIdStr = currentUserId ? currentUserId.toString() : "";
 
   const me = match.players?.find(
-    (p) => p.userId?.toString() === myId || p.userId?._id?.toString() === myId
+    (p) =>
+      p.userId?.toString() === myIdStr || p.userId?._id?.toString() === myIdStr
   );
 
   const opponent = match.players?.find(
-    (p) => p.userId?.toString() !== myId && p.userId?._id?.toString() !== myId
+    (p) =>
+      p.userId?.toString() !== myIdStr && p.userId?._id?.toString() !== myIdStr
   );
 
-  const getResultConfig = (result) => {
-    if (result === "WIN") {
-      return {
-        gradient: "from-green-500 to-emerald-600",
-        textColor: "text-green-400",
-        bgColor: "bg-green-500/20",
-        borderColor: "border-green-500",
-      };
-    } else if (result === "LOSS") {
-      return {
-        gradient: "from-red-500 to-rose-600",
-        textColor: "text-red-400",
-        bgColor: "bg-red-500/20",
-        borderColor: "border-red-500",
-      };
-    } else {
-      return {
-        gradient: "from-yellow-500 to-orange-600",
-        textColor: "text-yellow-400",
-        bgColor: "bg-yellow-500/20",
-        borderColor: "border-yellow-500",
-      };
-    }
-  };
+  const mySubmission = match.submissions?.find(
+    (s) =>
+      s.userId?.toString() === myIdStr || s.userId?._id?.toString() === myIdStr
+  );
 
-  const config = getResultConfig(me?.result);
+  const opponentSubmission = match.submissions?.find(
+    (s) =>
+      s.userId?.toString() !== myIdStr && s.userId?._id?.toString() !== myIdStr
+  );
 
-  const getVerdictColor = (verdict) => {
-    if (verdict?.includes("Accepted") || verdict?.includes("PASS")) {
-      return "text-green-400 bg-green-500/20 border-green-500/50";
-    }
-    return "text-red-400 bg-red-500/20 border-red-500/50";
+  const isWin = me?.result === "WIN";
+  const isLoss = me?.result === "LOSS";
+  const isDraw = me?.result === "DRAW" || !me?.result;
+
+  const handleCopy = (code) => {
+    if (!code) return;
+    navigator.clipboard.writeText(code);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4 relative overflow-hidden">
-      
-      {/* Animated Background Blobs */}
-      <div className="absolute inset-0">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500 rounded-full filter blur-3xl opacity-20 animate-blob"></div>
-        <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-blue-500 rounded-full filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
-        <div className="absolute bottom-1/4 left-1/2 w-96 h-96 bg-pink-500 rounded-full filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
-      </div>
-
-      <div className="relative z-10 max-w-[1800px] mx-auto animate-fade-in">
+    <AuthenticatedLayout>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 w-full animate-fade-in">
         
-        {/* Header */}
-        <div className="mb-8">
+        {/* Top Back Nav & Identifiers */}
+        <div className="flex items-center justify-between mb-8">
           <button
             onClick={() => navigate("/history")}
-            className="group flex items-center space-x-2 text-purple-300 hover:text-white transition-colors duration-300 mb-6"
+            className="flex items-center space-x-2 text-xs font-mono font-semibold text-slate-400 hover:text-white transition-colors"
           >
-            <svg className="w-6 h-6 transform group-hover:-translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            <span className="font-medium">Back to History</span>
+            <span>←</span>
+            <span>Return to Battle Log</span>
           </button>
 
-          <div className="text-center">
-            <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 bg-clip-text text-transparent mb-2">
-              Match Summary
-            </h1>
-            <p className="text-purple-300 text-lg">Detailed Code Comparison & Results</p>
-            <div className="h-1 w-32 bg-gradient-to-r from-blue-400 to-purple-500 mx-auto rounded-full mt-4"></div>
-          </div>
+          <span className="text-xs font-mono text-slate-500">
+            Duel ID: <code className="text-slate-400 font-bold">{matchId?.slice(-8)}</code>
+          </span>
         </div>
 
-        {/* Result Overview */}
-        <div className={`bg-gradient-to-r ${config.bgColor} backdrop-blur-xl rounded-3xl p-6 md:p-8 border-2 ${config.borderColor} border-opacity-50 mb-8`}>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+        {/* Hero Result Banner */}
+        <div
+          className={`rounded-3xl p-6 md:p-8 border shadow-2xl mb-8 relative overflow-hidden backdrop-blur-xl ${
+            isWin
+              ? "bg-gradient-to-r from-emerald-950/40 via-[#090D18] to-emerald-950/20 border-emerald-500/30 shadow-emerald-500/5"
+              : isLoss
+              ? "bg-gradient-to-r from-rose-950/40 via-[#090D18] to-rose-950/20 border-rose-500/30 shadow-rose-500/5"
+              : "bg-gradient-to-r from-amber-950/40 via-[#090D18] to-amber-950/20 border-amber-500/30 shadow-amber-500/5"
+          }`}
+        >
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
             
-            {/* Your Result */}
-            <div className="text-center">
-              <p className="text-purple-300 text-sm uppercase tracking-wide mb-2">Your Result</p>
-              <p className={`text-4xl md:text-6xl font-bold ${config.textColor}`}>
-                {me?.result}
+            {/* Outcome Title & Problem */}
+            <div>
+              <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-mono font-bold uppercase tracking-wider mb-2 bg-white/[0.05] border border-white/[0.08]">
+                <span>{isWin ? "🏆" : isLoss ? "💔" : "🤝"}</span>
+                <span>{isWin ? "Duel Victory" : isLoss ? "Duel Defeat" : "Duel Draw"}</span>
+              </div>
+              <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
+                {match.problem?.title || "Algorithmic Challenge"}
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-400 mt-1">
+                Completed on {match.completedAt ? new Date(match.completedAt).toLocaleString() : "Recently"}
               </p>
             </div>
 
-            {/* VS Divider */}
-            <div className="text-center">
-              <div className="text-3xl font-bold text-white opacity-50">VS</div>
-            </div>
-
-            {/* Rating Change */}
-            <div className="text-center">
-              <p className="text-purple-300 text-sm uppercase tracking-wide mb-2">Rating Change</p>
-              <div className="flex items-center justify-center space-x-2">
-                {me?.ratingChange > 0 && (
-                  <svg className={`w-6 h-6 ${config.textColor}`} fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                  </svg>
-                )}
-                {me?.ratingChange < 0 && (
-                  <svg className={`w-6 h-6 ${config.textColor}`} fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 012 0v7.586l2.293-2.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                )}
-                <span className={`text-4xl md:text-5xl font-bold ${config.textColor}`}>
-                  {me?.ratingChange > 0 ? "+" : ""}
-                  {me?.ratingChange}
-                </span>
+            {/* Rating Shift */}
+            <div className="flex items-center space-x-6">
+              <div className="text-center p-4 rounded-2xl bg-black/40 border border-white/[0.08] min-w-[130px]">
+                <p className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Rating Shift</p>
+                <p
+                  className={`text-2xl sm:text-3xl font-extrabold font-mono mt-1 ${
+                    (me?.ratingChange || 0) > 0
+                      ? "text-emerald-400"
+                      : (me?.ratingChange || 0) < 0
+                      ? "text-rose-400"
+                      : "text-slate-300"
+                  }`}
+                >
+                  {(me?.ratingChange || 0) > 0 ? `+${me.ratingChange}` : me?.ratingChange || 0} ELO
+                </p>
               </div>
+
+              <button
+                onClick={() => navigate("/dashboard")}
+                className="hidden sm:inline-flex px-6 py-4 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-indigo-500/20 transition-all"
+              >
+                Fight Again →
+              </button>
             </div>
 
           </div>
         </div>
 
-        {/* Problem Info */}
-        {match.problem && (
-          <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-6 border border-white/20 mb-8">
-            <h2 className="text-2xl font-bold text-white mb-4 flex items-center">
-              <svg className="w-6 h-6 mr-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Problem: {match.problem.title}
-            </h2>
-            <p className="text-purple-200">{match.problem.description}</p>
-          </div>
-        )}
-
-        {/* Player Statistics */}
+        {/* Head-to-Head Duel Comparison Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           
-          {/* Your Stats */}
-          <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-6 border border-white/20">
-            <div className="flex items-center space-x-4 mb-6">
-              <div className={`w-16 h-16 bg-gradient-to-br ${config.gradient} rounded-full flex items-center justify-center text-white font-bold text-2xl shadow-lg`}>
-                {user.username.charAt(0).toUpperCase()}
+          {/* You */}
+          <div className="p-6 rounded-3xl bg-[#090D18]/90 border border-white/[0.08] backdrop-blur-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-cyan-400 p-px">
+                  <div className="w-full h-full bg-[#080C16] rounded-[11px] flex items-center justify-center font-bold text-sm text-white">
+                    {user?.username?.charAt(0).toUpperCase() || "Y"}
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <p className="font-bold text-base text-white">{user?.username}</p>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                      YOU
+                    </span>
+                  </div>
+                  <p className="text-xs font-mono text-slate-400">Rating: {me?.rating || 1200} ELO</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-2xl font-bold text-white">{user.username}</h3>
-                <p className="text-purple-300">You</p>
-              </div>
+
+              {/* Verdict badge */}
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-mono font-bold border ${
+                  mySubmission?.verdict === "AC" || mySubmission?.verdict?.includes("Accepted")
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                    : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                }`}
+              >
+                {mySubmission?.verdict || "No Submission"}
+              </span>
             </div>
 
-            <div className="space-y-4">
-              <div className={`${getVerdictColor(mySubmission?.verdict)} backdrop-blur-xl border-2 p-4 rounded-2xl`}>
-                <p className="text-sm text-purple-200 mb-1">Verdict</p>
-                <p className="text-xl font-bold">{mySubmission?.verdict || "No submission"}</p>
-              </div>
-
-              <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-4 rounded-2xl">
-                <p className="text-sm text-purple-200 mb-1">Test Cases</p>
-                <p className="text-2xl font-bold text-white">
-                  {mySubmission?.passed || 0} / {mySubmission?.total || 0}
+            {/* Stats row */}
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <p className="text-[10px] font-mono uppercase text-slate-500">Test Cases Passed</p>
+                <p className="text-lg font-mono font-bold text-white mt-0.5">
+                  {mySubmission?.passed !== undefined
+                    ? `${mySubmission.passed} / ${mySubmission.total || mySubmission.passed}`
+                    : "N/A"}
                 </p>
-                <div className="mt-2 bg-white/10 rounded-full h-2 overflow-hidden">
-                  <div 
-                    className={`h-full bg-gradient-to-r ${config.gradient}`}
-                    style={{ width: `${((mySubmission?.passed || 0) / (mySubmission?.total || 1)) * 100}%` }}
-                  ></div>
-                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <p className="text-[10px] font-mono uppercase text-slate-500">Outcome</p>
+                <p className="text-lg font-bold text-indigo-300 mt-0.5">
+                  {me?.result || "DRAW"}
+                </p>
               </div>
             </div>
           </div>
 
-          {/* Opponent Stats */}
-          <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-6 border border-white/20">
-            <div className="flex items-center space-x-4 mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-2xl shadow-lg">
-                {opponent?.username?.charAt(0).toUpperCase()}
+          {/* Opponent */}
+          <div className="p-6 rounded-3xl bg-[#090D18]/90 border border-white/[0.08] backdrop-blur-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-500 to-pink-500 p-px">
+                  <div className="w-full h-full bg-[#080C16] rounded-[11px] flex items-center justify-center font-bold text-sm text-white">
+                    {opponent?.username?.charAt(0).toUpperCase() || "O"}
+                  </div>
+                </div>
+                <div>
+                  <p className="font-bold text-base text-white">{opponent?.username || "Opponent"}</p>
+                  <p className="text-xs font-mono text-slate-400">Rating: {opponent?.rating || 1200} ELO</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-2xl font-bold text-white">{opponent?.username}</h3>
-                <p className="text-purple-300">Opponent</p>
-              </div>
+
+              {/* Verdict badge */}
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-mono font-bold border ${
+                  opponentSubmission?.verdict === "AC" || opponentSubmission?.verdict?.includes("Accepted")
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                    : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                }`}
+              >
+                {opponentSubmission?.verdict || "No Submission"}
+              </span>
             </div>
 
-            <div className="space-y-4">
-              <div className={`${getVerdictColor(opponentSubmission?.verdict)} backdrop-blur-xl border-2 p-4 rounded-2xl`}>
-                <p className="text-sm text-purple-200 mb-1">Verdict</p>
-                <p className="text-xl font-bold">{opponentSubmission?.verdict || "No submission"}</p>
-              </div>
-
-              <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-4 rounded-2xl">
-                <p className="text-sm text-purple-200 mb-1">Test Cases</p>
-                <p className="text-2xl font-bold text-white">
-                  {opponentSubmission?.passed || 0} / {opponentSubmission?.total || 0}
+            {/* Stats row */}
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <p className="text-[10px] font-mono uppercase text-slate-500">Test Cases Passed</p>
+                <p className="text-lg font-mono font-bold text-white mt-0.5">
+                  {opponentSubmission?.passed !== undefined
+                    ? `${opponentSubmission.passed} / ${opponentSubmission.total || opponentSubmission.passed}`
+                    : "N/A"}
                 </p>
-                <div className="mt-2 bg-white/10 rounded-full h-2 overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-blue-500 to-purple-600"
-                    style={{ width: `${((opponentSubmission?.passed || 0) / (opponentSubmission?.total || 1)) * 100}%` }}
-                  ></div>
-                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <p className="text-[10px] font-mono uppercase text-slate-500">Outcome</p>
+                <p className="text-lg font-bold text-purple-300 mt-0.5">
+                  {opponent?.result || "DRAW"}
+                </p>
               </div>
             </div>
           </div>
 
         </div>
 
-        {/* Code Comparison */}
-        <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-6 border border-white/20 mb-8">
-          <h2 className="text-3xl font-bold text-white mb-6 flex items-center">
-            <svg className="w-8 h-8 mr-3 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-            </svg>
-            Code Comparison
-          </h2>
+        {/* Code & Problem Deep-Dive Workspace */}
+        <div className="rounded-3xl bg-[#090D18]/90 border border-white/[0.08] shadow-2xl overflow-hidden backdrop-blur-xl">
+          
+          {/* Workspace Tabs */}
+          <div className="px-6 py-3 border-b border-white/[0.06] bg-white/[0.02] flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setActiveTab("myCode")}
+                className={`px-4 py-2 rounded-xl text-xs font-mono font-semibold transition-all ${
+                  activeTab === "myCode"
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Your Code ({mySubmission ? "Submitted" : "Empty"})
+              </button>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <button
+                onClick={() => setActiveTab("opponentCode")}
+                className={`px-4 py-2 rounded-xl text-xs font-mono font-semibold transition-all ${
+                  activeTab === "opponentCode"
+                    ? "bg-purple-600 text-white shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Opponent's Code ({opponentSubmission ? "Revealed" : "Empty"})
+              </button>
+
+              <button
+                onClick={() => setActiveTab("problem")}
+                className={`px-4 py-2 rounded-xl text-xs font-mono font-semibold transition-all ${
+                  activeTab === "problem"
+                    ? "bg-white/[0.1] text-white"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Problem Specs
+              </button>
+            </div>
+
+            {/* Copy Button */}
+            {(activeTab === "myCode" || activeTab === "opponentCode") && (
+              <button
+                onClick={() =>
+                  handleCopy(
+                    activeTab === "myCode"
+                      ? mySubmission?.code
+                      : opponentSubmission?.code
+                  )
+                }
+                className="px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-xs font-mono text-slate-300 hover:text-white transition-all flex items-center space-x-1.5"
+              >
+                <span>{copiedCode ? "✓ Copied" : "Copy Code"}</span>
+              </button>
+            )}
+          </div>
+
+          {/* Active Tab Panel */}
+          <div className="p-6">
             
-            {/* Your Code */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-white flex items-center">
-                  <span className={`w-3 h-3 rounded-full bg-gradient-to-r ${config.gradient} mr-2`}></span>
-                  Your Code
-                </h3>
-                <span className="text-purple-300 text-sm">Python</span>
+            {/* My Code View */}
+            {activeTab === "myCode" && (
+              <div>
+                {mySubmission?.code ? (
+                  <div className="h-[450px] w-full rounded-2xl overflow-hidden border border-white/[0.06]">
+                    <CodeEditor value={mySubmission.code} disabled={true} />
+                  </div>
+                ) : (
+                  <div className="py-20 text-center space-y-2">
+                    <span className="text-3xl">📝</span>
+                    <p className="text-sm font-bold text-white">No submission recorded</p>
+                    <p className="text-xs text-slate-500">You did not submit any code before the match concluded.</p>
+                  </div>
+                )}
               </div>
-              <div className="bg-black/60 rounded-2xl p-4 border border-white/10 overflow-x-auto">
-                <pre className="text-green-300 font-mono text-sm leading-relaxed">
-                  {mySubmission?.code || "// No code submitted"}
-                </pre>
-              </div>
-            </div>
+            )}
 
-            {/* Opponent Code */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-white flex items-center">
-                  <span className="w-3 h-3 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 mr-2"></span>
-                  {opponent?.username}'s Code
-                </h3>
-                <span className="text-purple-300 text-sm">Python</span>
+            {/* Opponent Code View */}
+            {activeTab === "opponentCode" && (
+              <div>
+                {opponentSubmission?.code ? (
+                  <div className="h-[450px] w-full rounded-2xl overflow-hidden border border-white/[0.06]">
+                    <CodeEditor value={opponentSubmission.code} disabled={true} />
+                  </div>
+                ) : (
+                  <div className="py-20 text-center space-y-2">
+                    <span className="text-3xl">🔒</span>
+                    <p className="text-sm font-bold text-white">No opponent code available</p>
+                    <p className="text-xs text-slate-500">The opponent did not submit code during this match.</p>
+                  </div>
+                )}
               </div>
-              <div className="bg-black/60 rounded-2xl p-4 border border-white/10 overflow-x-auto">
-                <pre className="text-blue-300 font-mono text-sm leading-relaxed">
-                  {opponentSubmission?.code || "// No code submitted"}
-                </pre>
+            )}
+
+            {/* Problem Specs View */}
+            {activeTab === "problem" && (
+              <div className="space-y-6 text-slate-300 max-w-4xl">
+                <div>
+                  <h3 className="text-lg font-bold text-white mb-2">Description</h3>
+                  <div className="text-sm bg-white/[0.02] p-4 rounded-xl border border-white/[0.04] whitespace-pre-wrap leading-relaxed">
+                    {match.problem?.description}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <h4 className="text-xs font-mono uppercase text-slate-400 font-bold mb-2">Input Format</h4>
+                    <pre className="text-xs font-mono text-emerald-300 bg-[#04060B] p-3 rounded-xl border border-white/[0.06] overflow-x-auto">
+                      {match.problem?.inputFormat || "N/A"}
+                    </pre>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-mono uppercase text-slate-400 font-bold mb-2">Output Format</h4>
+                    <pre className="text-xs font-mono text-cyan-300 bg-[#04060B] p-3 rounded-xl border border-white/[0.06] overflow-x-auto">
+                      {match.problem?.outputFormat || "N/A"}
+                    </pre>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-mono uppercase text-slate-400 font-bold mb-2">Sample Test Case</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="p-3 rounded-xl bg-[#04060B] border border-white/[0.06]">
+                      <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Input</span>
+                      <pre className="text-xs font-mono text-slate-200 whitespace-pre-wrap">
+                        {match.problem?.sampleInput || "N/A"}
+                      </pre>
+                    </div>
+                    <div className="p-3 rounded-xl bg-[#04060B] border border-white/[0.06]">
+                      <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Output</span>
+                      <pre className="text-xs font-mono text-emerald-300 whitespace-pre-wrap">
+                        {match.problem?.sampleOutput || "N/A"}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
 
           </div>
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex flex-col md:flex-row gap-4 justify-center">
-          <button
-            onClick={() => navigate("/history")}
-            className="group relative overflow-hidden bg-gradient-to-r from-gray-600 to-gray-700 text-white px-8 py-4 rounded-2xl font-bold shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-gray-500/50 active:scale-95"
-          >
-            <div className="absolute inset-0 bg-gradient-to-r from-gray-700 to-gray-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            <div className="relative flex items-center justify-center space-x-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span>View History</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="group relative overflow-hidden bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-2xl font-bold shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-purple-500/50 active:scale-95"
-          >
-            <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            <div className="relative flex items-center justify-center space-x-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-              </svg>
-              <span>Back to Dashboard</span>
-            </div>
-          </button>
         </div>
 
       </div>
-
-      <style>{`
-        @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        @keyframes blob {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(30px, -50px) scale(1.1); }
-          66% { transform: translate(-20px, 20px) scale(0.9); }
-        }
-
-        .animate-fade-in {
-          animation: fade-in 0.6s ease-out;
-        }
-
-        .animate-blob {
-          animation: blob 7s infinite;
-        }
-
-        .animation-delay-2000 {
-          animation-delay: 2s;
-        }
-
-        .animation-delay-4000 {
-          animation-delay: 4s;
-        }
-      `}</style>
-    </div>
+    </AuthenticatedLayout>
   );
 };
 

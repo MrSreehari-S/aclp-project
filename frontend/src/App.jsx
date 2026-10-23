@@ -70,8 +70,8 @@ function App() {
           }
         />
 
-        <Route path="/history" element={<MatchHistory />} />
-        <Route path="/leaderboard" element={<Leaderboard />} />
+        <Route path="/history" element={<ProtectedRoute><MatchHistory /></ProtectedRoute>} />
+        <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
 
         {/* Default Redirect */}
         <Route path="*" element={<Navigate to="/login" />} />

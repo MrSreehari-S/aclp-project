@@ -28,8 +28,8 @@ app.use("/api/judge", judgeRoutes);
 app.use("/api/problems", problemRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/auth", authRoutes);
-app.use("/api/match", matchRoutes);
 app.use("/api/match", matchHistoryRoutes);
+app.use("/api/match", matchRoutes);
 
 // Root Route
 app.get("/", (req, res) => {

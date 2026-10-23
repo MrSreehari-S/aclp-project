@@ -1,37 +1,56 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import CodeEditor from "../components/CodeEditor";
 import { useAuth } from "../context/AuthContext";
+import ArenaBackground from "../components/ArenaBackground";
+import RankBadge from "../components/RankBadge";
 
 const Match = () => {
   const { matchId } = useParams();
   const navigate = useNavigate();
   const { user, setUser } = useAuth();
+  const userId = user?.id || user?._id;
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [match, setMatch] = useState(null);
   const [sourceCode, setSourceCode] = useState("");
+  
+  // Execution states
   const [runningSample, setRunningSample] = useState(false);
+  const [sampleOutput, setSampleOutput] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [verdict, setVerdict] = useState("");
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [activeConsoleTab, setActiveConsoleTab] = useState("sample"); // "sample" | "verdict"
 
-  // Timer state
+  // Timer states
   const [timeLeft, setTimeLeft] = useState(0);
   const [timerExpired, setTimerExpired] = useState(false);
 
-  // Mobile tab state: "problem" | "editor"
-  const [mobileTab, setMobileTab] = useState("problem");
+  // Mobile layout tab
+  const [mobileTab, setMobileTab] = useState("problem"); // "problem" | "editor"
 
-  /* FETCH MATCH */
-
+  /* ================= FETCH MATCH ================= */
   const fetchMatch = async () => {
     try {
       const res = await api.get(`/match/${matchId}`);
       setMatch(res.data);
-    } catch {
-      setError("Failed to load match");
+
+      // Check if user has already submitted previously in this match
+      if (res.data.submissions && userId) {
+        const mySub = res.data.submissions.find(
+          (s) => s.userId?.toString() === userId.toString()
+        );
+        if (mySub) {
+          setHasSubmitted(true);
+          if (mySub.verdict) setVerdict(mySub.verdict);
+          if (mySub.code && !sourceCode) setSourceCode(mySub.code);
+        }
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to load match session.");
     } finally {
       setLoading(false);
     }
@@ -41,701 +60,659 @@ const Match = () => {
     fetchMatch();
   }, [matchId]);
 
-  /* POLLING */
-
+  /* ================= POLLING ================= */
   useEffect(() => {
     if (!match || match.status === "COMPLETED") return;
-    const interval = setInterval(fetchMatch, 2000);
+    const interval = setInterval(fetchMatch, 2500);
     return () => clearInterval(interval);
   }, [match?.status, matchId]);
 
-  /* SYNC RATING */
-
+  /* ================= SYNC USER RATING ON MATCH COMPLETE ================= */
   useEffect(() => {
-    if (!match || match.status !== "COMPLETED") return;
-    const myId = user.id.toString();
+    if (!match || match.status !== "COMPLETED" || !userId) return;
+
+    const myIdStr = userId.toString();
     const me = match.players.find(
       (p) =>
-        p.userId?.toString?.() === myId || p.userId?._id?.toString() === myId,
+        p.userId?.toString?.() === myIdStr ||
+        p.userId?._id?.toString?.() === myIdStr
     );
-    if (!me) return;
-    setUser((prev) => {
-      const updatedUser = {
-        ...prev,
-        rating: prev.rating + (me.ratingChange || 0),
-      };
-      localStorage.setItem("user", JSON.stringify(updatedUser));
-      return updatedUser;
-    });
+
+    if (me && me.ratingChange !== undefined) {
+      setUser((prev) => {
+        if (!prev) return prev;
+        const updated = {
+          ...prev,
+          rating: (prev.rating || 1200) + me.ratingChange,
+        };
+        localStorage.setItem("user", JSON.stringify(updated));
+        return updated;
+      });
+    }
   }, [match?.status]);
 
-  /* TIMER */
-
+  /* ================= TIMER CALCULATION ================= */
   useEffect(() => {
     if (!match || match.status !== "ONGOING") return;
-    const calculateTime = () => {
+
+    const calculateRemaining = () => {
       const start = new Date(match.startTime).getTime();
-      const end = start + match.timeLimit * 1000;
+      const end = start + (match.timeLimit || 600) * 1000;
       const now = Date.now();
-      const remaining = Math.max(0, Math.floor((end - now) / 1000));
-      setTimeLeft(remaining);
-      if (remaining <= 0) setTimerExpired(true);
+      const diff = Math.max(0, Math.floor((end - now) / 1000));
+      setTimeLeft(diff);
+
+      if (diff <= 0) {
+        setTimerExpired(true);
+      }
     };
-    calculateTime();
-    const interval = setInterval(calculateTime, 1000);
+
+    calculateRemaining();
+    const interval = setInterval(calculateRemaining, 1000);
     return () => clearInterval(interval);
-  }, [match]);
+  }, [match?.startTime, match?.timeLimit, match?.status]);
 
-  /* AUTO-SUBMIT */
-
+  /* ================= AUTO-SUBMIT ON TIME EXPIRED ================= */
   useEffect(() => {
     if (timerExpired && !hasSubmitted && match?.status === "ONGOING") {
       submitCode();
     }
   }, [timerExpired]);
 
-  /* RUN SAMPLE */
-
+  /* ================= RUN SAMPLE TEST ================= */
   const runSample = async () => {
-    if (!sourceCode.trim()) return;
+    if (!sourceCode.trim() || !match?.problem) return;
+
     try {
       setRunningSample(true);
-      await api.post("/judge/run-sample", {
+      setActiveConsoleTab("sample");
+      setSampleOutput("Executing sample against Judge0 runtime...");
+
+      const res = await api.post("/judge/run-sample", {
         sourceCode,
-        input: match.problem.sampleInput,
+        input: match.problem.sampleInput || "",
       });
+
+      setSampleOutput(res.data.output || "(Program exited with no output)");
+    } catch (err) {
+      setSampleOutput(err.response?.data?.output || "Execution failed. Check your syntax.");
     } finally {
       setRunningSample(false);
     }
   };
 
-  /* SUBMIT CODE */
-
+  /* ================= SUBMIT CODE ================= */
   const submitCode = async () => {
-    if (!sourceCode.trim()) return;
+    if (!sourceCode.trim() || !match?.problem) return;
+
     try {
       setSubmitting(true);
+      setActiveConsoleTab("verdict");
+
       const res = await api.post("/judge/evaluate", {
         matchId,
         problemId: match.problem.id,
         languageId: 71,
         sourceCode,
       });
-      setVerdict(res.data.verdict);
+
+      setVerdict(res.data.verdict || "EVALUATED");
       setHasSubmitted(true);
+      fetchMatch();
     } catch (err) {
-      setVerdict(err.response?.data?.message || "Submission failed");
+      setVerdict(err.response?.data?.message || "Submission rejected");
     } finally {
       setSubmitting(false);
     }
   };
 
-  /* RESULT SCREEN */
+  /* ================= MATCH PLAYERS ================= */
+  const myIdStr = userId ? userId.toString() : "";
+  const me = match?.players?.find(
+    (p) =>
+      p.userId?.toString?.() === myIdStr ||
+      p.userId?._id?.toString?.() === myIdStr
+  );
+  const opponent = match?.players?.find(
+    (p) =>
+      p.userId?.toString?.() !== myIdStr &&
+      p.userId?._id?.toString?.() !== myIdStr
+  );
 
-  if (match && match.status === "COMPLETED") {
-    const myId = user.id.toString();
-    const me = match.players.find(
-      (p) =>
-        p.userId?.toString?.() === myId || p.userId?._id?.toString() === myId,
-    );
-    const opponent = match.players.find(
-      (p) =>
-        p.userId?.toString?.() !== myId && p.userId?._id?.toString() !== myId,
-    );
+  const opponentSubmission = match?.submissions?.find(
+    (s) => s.userId?.toString() !== myIdStr && s.userId?._id?.toString() !== myIdStr
+  );
+  const opponentHasSubmitted = !!opponentSubmission;
 
-    const getResultConfig = (result) => {
-      if (result === "WIN") {
-        return {
-          title: "Victory!",
-          emoji: "🏆",
-          gradient: "from-green-500 to-emerald-600",
-          bgGradient: "from-green-500/20 to-emerald-500/20",
-          blobColor: "bg-green-500",
-          shadowColor: "shadow-green-500/50",
-          textColor: "text-green-400",
-          borderColor: "border-green-500",
-        };
-      } else if (result === "LOSS") {
-        return {
-          title: "Defeat",
-          emoji: "💔",
-          gradient: "from-red-500 to-rose-600",
-          bgGradient: "from-red-500/20 to-rose-500/20",
-          blobColor: "bg-red-500",
-          shadowColor: "shadow-red-500/50",
-          textColor: "text-red-400",
-          borderColor: "border-red-500",
-        };
-      } else {
-        return {
-          title: "Draw",
-          emoji: "🤝",
-          gradient: "from-yellow-500 to-orange-600",
-          bgGradient: "from-yellow-500/20 to-orange-500/20",
-          blobColor: "bg-yellow-500",
-          shadowColor: "shadow-yellow-500/50",
-          textColor: "text-yellow-400",
-          borderColor: "border-yellow-500",
-        };
-      }
-    };
+  /* ================= FORMAT TIMER ================= */
+  const formatTimer = () => {
+    if (timerExpired) return "00:00";
+    const mins = Math.floor(timeLeft / 60);
+    const secs = timeLeft % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
 
-    const config = getResultConfig(me.result);
+  const getTimerStyles = () => {
+    if (timerExpired) {
+      return "border-rose-500/50 text-rose-400 bg-rose-500/10";
+    }
+    if (timeLeft <= 30) {
+      return "border-rose-500/50 text-rose-400 bg-rose-500/10 animate-pulse";
+    }
+    if (timeLeft <= 90) {
+      return "border-amber-500/50 text-amber-300 bg-amber-500/10";
+    }
+    return "border-cyan-500/40 text-cyan-300 bg-cyan-500/10";
+  };
 
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
-        {/* Animated Background Blobs */}
-        <div className="absolute inset-0">
-          <div className={`absolute top-1/4 left-1/4 w-96 h-96 ${config.blobColor} rounded-full filter blur-3xl opacity-20 animate-blob`}></div>
-          <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-purple-500 rounded-full filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
-          <div className={`absolute bottom-1/4 left-1/2 w-96 h-96 ${config.blobColor} rounded-full filter blur-3xl opacity-20 animate-blob animation-delay-4000`}></div>
-        </div>
-
-        <div className="relative z-10 w-full max-w-2xl animate-fade-in">
-          <div className={`bg-gradient-to-br ${config.bgGradient} backdrop-blur-xl p-6 sm:p-8 md:p-12 rounded-3xl shadow-2xl border-4 ${config.borderColor} border-opacity-50`}>
-            {/* Result Icon and Title */}
-            <div className="text-center mb-6 sm:mb-8">
-              <div className="inline-block mb-4 sm:mb-6 animate-bounce-slow">
-                <div className={`w-24 h-24 sm:w-32 sm:h-32 mx-auto bg-gradient-to-br ${config.gradient} rounded-full flex items-center justify-center shadow-2xl ${config.shadowColor} transform hover:scale-110 transition-transform duration-300`}>
-                  <span className="text-5xl sm:text-7xl">{config.emoji}</span>
-                </div>
-              </div>
-              <h1 className={`text-4xl sm:text-5xl md:text-7xl font-bold bg-gradient-to-r ${config.gradient} bg-clip-text text-transparent mb-4`}>
-                {config.title}
-              </h1>
-              <div className={`h-2 w-48 bg-gradient-to-r ${config.gradient} mx-auto rounded-full`}></div>
-            </div>
-
-            {/* Match Details */}
-            <div className="space-y-4 sm:space-y-6">
-              {/* Players */}
-              <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border border-white/20">
-                <div className="flex items-center justify-between">
-                  <div className="text-center flex-1">
-                    <div className={`w-14 h-14 sm:w-20 sm:h-20 mx-auto bg-gradient-to-br ${config.gradient} rounded-full flex items-center justify-center text-white font-bold text-xl sm:text-2xl shadow-lg mb-2 sm:mb-3`}>
-                      {user.username.charAt(0).toUpperCase()}
-                    </div>
-                    <p className="text-white font-bold text-sm sm:text-lg truncate max-w-[80px] sm:max-w-none mx-auto">{user.username}</p>
-                    <p className="text-purple-300 text-xs sm:text-sm">You</p>
-                  </div>
-                  <div className="flex-shrink-0 px-3 sm:px-6">
-                    <div className="text-2xl sm:text-4xl font-bold text-white opacity-50">VS</div>
-                  </div>
-                  <div className="text-center flex-1">
-                    <div className="w-14 h-14 sm:w-20 sm:h-20 mx-auto bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-xl sm:text-2xl shadow-lg mb-2 sm:mb-3">
-                      {opponent.username.charAt(0).toUpperCase()}
-                    </div>
-                    <p className="text-white font-bold text-sm sm:text-lg truncate max-w-[80px] sm:max-w-none mx-auto">{opponent.username}</p>
-                    <p className="text-purple-300 text-xs sm:text-sm">Opponent</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Rating Change */}
-              <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border border-white/20">
-                <div className="text-center">
-                  <p className="text-purple-300 text-sm uppercase tracking-wide mb-2">Rating Change</p>
-                  <div className="flex items-center justify-center space-x-3">
-                    {me.ratingChange > 0 && (
-                      <svg className={`w-6 h-6 sm:w-8 sm:h-8 ${config.textColor}`} fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                      </svg>
-                    )}
-                    {me.ratingChange < 0 && (
-                      <svg className={`w-6 h-6 sm:w-8 sm:h-8 ${config.textColor}`} fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 012 0v7.586l2.293-2.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                      </svg>
-                    )}
-                    <span className={`text-5xl sm:text-6xl font-bold ${config.textColor}`}>
-                      {me.ratingChange > 0 ? "+" : ""}
-                      {me.ratingChange}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Motivational Message */}
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border border-white/10">
-                <p className="text-center text-purple-200 text-base sm:text-lg italic">
-                  {me.result === "WIN"
-                    ? "Outstanding performance! Keep climbing the ranks!"
-                    : me.result === "LOSS"
-                    ? "Every defeat is a lesson. Come back stronger!"
-                    : "Well fought! Both players showed great skill!"}
-                </p>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="mt-6 sm:mt-8 space-y-4">
-              <button
-                onClick={() => navigate("/dashboard")}
-                className="w-full group relative overflow-hidden bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4 rounded-2xl font-bold text-lg shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-purple-500/50 active:scale-95"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                <div className="relative flex items-center justify-center space-x-2">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                  </svg>
-                  <span>Back to Dashboard</span>
-                </div>
-              </button>
-
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  onClick={() => navigate("/history")}
-                  className="group relative overflow-hidden bg-white/10 backdrop-blur-xl text-white p-3 rounded-xl font-semibold border border-white/20 shadow-lg transform transition-all duration-300 hover:scale-105 hover:bg-white/20 active:scale-95"
-                >
-                  <div className="relative flex items-center justify-center space-x-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span>History</span>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => navigate("/leaderboard")}
-                  className="group relative overflow-hidden bg-white/10 backdrop-blur-xl text-white p-3 rounded-xl font-semibold border border-white/20 shadow-lg transform transition-all duration-300 hover:scale-105 hover:bg-white/20 active:scale-95"
-                >
-                  <div className="relative flex items-center justify-center space-x-2">
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                    </svg>
-                    <span>Leaderboard</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <style>{`
-          @keyframes fade-in {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-          @keyframes blob {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(30px, -50px) scale(1.1); }
-            66% { transform: translate(-20px, 20px) scale(0.9); }
-          }
-          @keyframes bounce-slow {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-20px); }
-          }
-          .animate-fade-in { animation: fade-in 0.6s ease-out; }
-          .animate-blob { animation: blob 7s infinite; }
-          .animate-bounce-slow { animation: bounce-slow 2s ease-in-out infinite; }
-          .animation-delay-2000 { animation-delay: 2s; }
-          .animation-delay-4000 { animation-delay: 4s; }
-        `}</style>
-      </div>
-    );
-  }
-
-  /* LOADING / ERROR */
-
+  /* ================= LOADING SCREEN ================= */
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="w-20 h-20 mx-auto relative">
-            <div className="absolute inset-0 border-4 border-purple-300/30 rounded-full animate-ping"></div>
-            <div className="absolute inset-0 border-4 border-t-purple-400 border-r-pink-400 border-b-transparent border-l-transparent rounded-full animate-spin"></div>
+      <ArenaBackground>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-center space-y-4">
+            <div className="w-16 h-16 mx-auto relative">
+              <div className="absolute inset-0 border-4 border-indigo-500/20 rounded-full animate-ping" />
+              <div className="absolute inset-0 border-4 border-t-indigo-500 border-r-cyan-400 border-b-transparent border-l-transparent rounded-full animate-spin" />
+            </div>
+            <p className="text-indigo-200 text-sm font-mono tracking-wider">
+              CONNECTING TO COMBAT ARENA...
+            </p>
           </div>
-          <p className="text-purple-200 text-lg font-medium">Loading match...</p>
         </div>
-      </div>
+      </ArenaBackground>
     );
   }
 
-  if (error) {
+  /* ================= ERROR SCREEN ================= */
+  if (error || !match) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
-        <div className="bg-red-500/20 backdrop-blur-xl border border-red-500/50 text-red-200 p-8 rounded-3xl max-w-md text-center">
-          <svg className="w-16 h-16 mx-auto mb-4" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-          </svg>
-          <p className="text-xl font-bold">{error}</p>
+      <ArenaBackground>
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <div className="max-w-md w-full p-8 rounded-3xl bg-[#090D17]/90 border border-rose-500/30 text-center space-y-4 shadow-2xl">
+            <span className="text-4xl">⚠️</span>
+            <h2 className="text-xl font-bold text-white">Arena Access Error</h2>
+            <p className="text-sm text-slate-400">{error || "Could not retrieve match session"}</p>
+            <button
+              onClick={() => navigate("/dashboard")}
+              className="px-6 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] text-white text-sm font-semibold transition-all"
+            >
+              Back to Headquarters
+            </button>
+          </div>
         </div>
-      </div>
+      </ArenaBackground>
     );
   }
 
-  /* MATCH UI */
+  /* ================= MATCH COMPLETED SCREEN ================= */
+  if (match.status === "COMPLETED" && me) {
+    const isWin = me.result === "WIN";
+    const isLoss = me.result === "LOSS";
+    const isDraw = me.result === "DRAW" || !me.result;
 
-  const timerDisplay = timerExpired
-    ? "00:00"
-    : `${Math.floor(timeLeft / 60)}:${String(timeLeft % 60).padStart(2, "0")}`;
+    return (
+      <ArenaBackground>
+        <div className="min-h-screen flex items-center justify-center p-4 md:p-8 animate-fade-in">
+          <div className="max-w-2xl w-full rounded-3xl bg-[#090D18]/95 border border-white/[0.08] p-8 md:p-12 shadow-2xl text-center relative overflow-hidden backdrop-blur-2xl">
+            
+            {/* Ambient Ambient Glow */}
+            <div
+              className={`absolute top-0 left-1/2 -translate-x-1/2 w-80 h-80 rounded-full blur-[100px] pointer-events-none ${
+                isWin ? "bg-emerald-500/20" : isLoss ? "bg-rose-500/20" : "bg-amber-500/20"
+              }`}
+            />
 
-  const timerClass = timerExpired
-    ? "bg-red-600 text-white"
-    : timeLeft <= 10
-    ? "bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/50"
-    : timeLeft <= 30
-    ? "bg-orange-500/60 text-orange-100"
-    : "bg-black/40 text-green-400";
+            <div className="relative z-10 space-y-6">
+              
+              {/* Outcome Badge */}
+              <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full border text-xs font-mono font-bold tracking-widest uppercase">
+                {isWin && (
+                  <span className="bg-emerald-500/10 border-emerald-500/30 text-emerald-400">
+                    🏆 VICTORY ACHIEVED
+                  </span>
+                )}
+                {isLoss && (
+                  <span className="bg-rose-500/10 border-rose-500/30 text-rose-400">
+                    💔 DEFEAT
+                  </span>
+                )}
+                {isDraw && (
+                  <span className="bg-amber-500/10 border-amber-500/30 text-amber-400">
+                    🤝 DRAW
+                  </span>
+                )}
+              </div>
 
-  return (
-    <>
-      {/* ===================== DESKTOP LAYOUT (lg+) ===================== */}
-      <div className="hidden lg:flex h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4 overflow-hidden">
-        <div className="h-full w-full max-w-[1800px] mx-auto grid grid-cols-2 gap-4">
+              {/* Title Header */}
+              <h1 className="text-4xl md:text-6xl font-extrabold text-white tracking-tight">
+                {isWin ? "Winner of the Duel!" : isLoss ? "Better Luck Next Match" : "Evenly Matched Duel"}
+              </h1>
 
-          {/* PROBLEM PANEL */}
-          <div className="bg-white/10 backdrop-blur-xl p-6 rounded-3xl shadow-2xl border border-white/20 overflow-y-auto">
-            <ProblemPanel match={match} />
+              {/* Players Face-Off Box */}
+              <div className="grid grid-cols-3 items-center gap-2 p-5 rounded-2xl bg-white/[0.03] border border-white/[0.06] backdrop-blur-md my-6">
+                
+                {/* You */}
+                <div className="text-center space-y-2">
+                  <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-indigo-500 to-cyan-400 p-[1.5px]">
+                    <div className="w-full h-full bg-[#080C16] rounded-[14px] flex items-center justify-center font-bold text-white text-xl">
+                      {user?.username?.charAt(0).toUpperCase()}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="font-bold text-white text-sm truncate">{user?.username}</p>
+                    <p className="text-xs text-indigo-400 font-mono">You</p>
+                  </div>
+                </div>
+
+                {/* VS Badge & Rating Delta */}
+                <div className="text-center">
+                  <span className="text-xs font-mono font-bold text-slate-500 block mb-2">VS</span>
+                  <div
+                    className={`inline-block px-4 py-1 rounded-xl text-lg font-mono font-extrabold ${
+                      (me.ratingChange || 0) > 0
+                        ? "text-emerald-400 bg-emerald-500/10 border border-emerald-500/20"
+                        : (me.ratingChange || 0) < 0
+                        ? "text-rose-400 bg-rose-500/10 border border-rose-500/20"
+                        : "text-slate-300 bg-white/[0.05]"
+                    }`}
+                  >
+                    {(me.ratingChange || 0) > 0 ? `+${me.ratingChange}` : me.ratingChange || 0} ELO
+                  </div>
+                </div>
+
+                {/* Opponent */}
+                <div className="text-center space-y-2">
+                  <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-purple-500 to-pink-500 p-[1.5px]">
+                    <div className="w-full h-full bg-[#080C16] rounded-[14px] flex items-center justify-center font-bold text-white text-xl">
+                      {opponent?.username?.charAt(0).toUpperCase() || "O"}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="font-bold text-white text-sm truncate">{opponent?.username || "Opponent"}</p>
+                    <p className="text-xs text-purple-400 font-mono">Opponent</p>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                <button
+                  onClick={() => navigate(`/match/${matchId}/summary`)}
+                  className="flex-1 px-6 py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-sm shadow-lg shadow-indigo-500/20 transition-all transform hover:-translate-y-0.5"
+                >
+                  View Code & Analysis →
+                </button>
+                <button
+                  onClick={() => navigate("/dashboard")}
+                  className="flex-1 px-6 py-3.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-200 hover:text-white font-semibold text-sm transition-all"
+                >
+                  Back to Headquarters
+                </button>
+              </div>
+
+            </div>
+
           </div>
+        </div>
+      </ArenaBackground>
+    );
+  }
 
-          {/* EDITOR PANEL */}
-          <div className="bg-white/10 backdrop-blur-xl p-4 rounded-3xl shadow-2xl border border-white/20 flex flex-col h-full overflow-hidden">
-            <EditorHeader timerDisplay={timerDisplay} timerClass={timerClass} />
-            <div className="flex-1 mb-4 rounded-lg overflow-hidden min-h-0">
-              <CodeEditor
-                value={sourceCode}
-                onChange={setSourceCode}
-                disabled={hasSubmitted || timerExpired}
-              />
-            </div>
-            <div className="flex-shrink-0 overflow-y-auto max-h-[40%] scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/20">
-              <EditorFooter
-                runSample={runSample}
-                submitCode={submitCode}
-                runningSample={runningSample}
-                submitting={submitting}
-                hasSubmitted={hasSubmitted}
-                timerExpired={timerExpired}
-                verdict={verdict}
-                matchStatus={match.status}
-              />
-            </div>
+  /* ================= ACTIVE 1v1 MATCH ARENA ================= */
+  return (
+    <div className="h-screen w-screen bg-[#05070E] text-slate-100 flex flex-col overflow-hidden font-sans select-none">
+      
+      {/* ================= ARENA HUD TOPBAR ================= */}
+      <header className="h-16 flex-shrink-0 bg-[#080C17]/90 border-b border-white/[0.06] backdrop-blur-xl px-4 lg:px-6 flex items-center justify-between z-20">
+        
+        {/* Left: Problem & Match Tag */}
+        <div className="flex items-center space-x-3 min-w-0">
+          <button
+            onClick={() => {
+              if (window.confirm("Leave active battle? The timer will continue running.")) {
+                navigate("/dashboard");
+              }
+            }}
+            title="Leave Match (Match continues in background)"
+            className="p-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.06] text-slate-400 hover:text-white transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </button>
+
+          <div className="flex items-center space-x-2 truncate">
+            <span className="hidden sm:inline-flex px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-mono uppercase font-bold tracking-wider">
+              1v1 ARENA
+            </span>
+            <h1 className="text-sm sm:text-base font-bold text-white truncate max-w-[200px] sm:max-w-xs md:max-w-md">
+              {match.problem?.title || "Algorithmic Challenge"}
+            </h1>
           </div>
         </div>
 
-        <MatchStyles />
-      </div>
+        {/* Center: Live Countdown Timer */}
+        <div className="flex items-center space-x-2">
+          <div className={`px-4 py-1.5 rounded-xl border font-mono font-bold text-base sm:text-lg flex items-center space-x-2 shadow-sm ${getTimerStyles()}`}>
+            <span className="w-2 h-2 rounded-full bg-current animate-ping" />
+            <span>{formatTimer()}</span>
+          </div>
+        </div>
 
-      {/* ===================== MOBILE LAYOUT (< lg) ===================== */}
-      <div className="flex lg:hidden flex-col h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 overflow-hidden">
-
-        {/* Mobile Top Bar: Timer + Tabs */}
-        <div className="flex-shrink-0 px-3 pt-3 pb-0 space-y-2">
-          {/* Timer row */}
-          <div className="flex items-center justify-between bg-white/10 backdrop-blur-xl rounded-2xl px-4 py-2 border border-white/20">
-            <span className="text-purple-300 text-xs uppercase tracking-wide font-semibold">Time Left</span>
-            <span className={`text-lg font-mono font-bold px-3 py-1 rounded-lg transition-all duration-300 ${timerClass}`}>
-              {timerDisplay}
-            </span>
+        {/* Right: Opponent Live Combat Status */}
+        <div className="flex items-center space-x-3">
+          <div className="hidden sm:flex items-center space-x-2 text-right">
+            <div>
+              <p className="text-xs font-semibold text-slate-200 leading-tight">
+                {opponent?.username || "Opponent"}
+              </p>
+              <p className="text-[10px] font-mono text-purple-300">
+                {opponentHasSubmitted ? (
+                  <span className="text-emerald-400 font-bold">● Submitted</span>
+                ) : (
+                  <span className="text-indigo-400 animate-pulse">● Coding...</span>
+                )}
+              </p>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center font-bold text-xs text-white">
+              {opponent?.username?.charAt(0).toUpperCase() || "O"}
+            </div>
           </div>
 
-          {/* Tab switcher */}
-          <div className="flex bg-white/10 backdrop-blur-xl rounded-2xl p-1 border border-white/20">
+          {/* Mobile Tab Toggle */}
+          <div className="flex lg:hidden bg-white/[0.04] p-1 rounded-xl border border-white/[0.08]">
             <button
               onClick={() => setMobileTab("problem")}
-              className={`flex-1 flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl font-semibold text-sm transition-all duration-200 ${
-                mobileTab === "problem"
-                  ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg"
-                  : "text-purple-300 hover:text-white"
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                mobileTab === "problem" ? "bg-indigo-600 text-white" : "text-slate-400"
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span>Problem</span>
+              Task
             </button>
             <button
               onClick={() => setMobileTab("editor")}
-              className={`flex-1 flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl font-semibold text-sm transition-all duration-200 ${
-                mobileTab === "editor"
-                  ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg"
-                  : "text-purple-300 hover:text-white"
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                mobileTab === "editor" ? "bg-indigo-600 text-white" : "text-slate-400"
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-              </svg>
-              <span>Editor</span>
-              {verdict && (
-                <span className={`w-2 h-2 rounded-full ${verdict.includes("Accepted") || verdict.includes("PASS") ? "bg-green-400" : "bg-red-400"}`}></span>
-              )}
+              Editor
             </button>
           </div>
         </div>
 
-        {/* Mobile Panel Content */}
-        <div className="flex-1 min-h-0 p-3 pt-2">
-          {/* Problem Tab */}
-          {mobileTab === "problem" && (
-            <div className="h-full bg-white/10 backdrop-blur-xl p-4 rounded-3xl shadow-2xl border border-white/20 overflow-y-auto">
-              <ProblemPanel match={match} />
-            </div>
-          )}
+      </header>
 
-          {/* Editor Tab */}
-          {mobileTab === "editor" && (
-            <div className="h-full bg-white/10 backdrop-blur-xl p-4 rounded-3xl shadow-2xl border border-white/20 flex flex-col">
-              <div className="flex-1 mb-3 rounded-lg overflow-hidden min-h-0">
-                <CodeEditor
-                  value={sourceCode}
-                  onChange={setSourceCode}
-                  disabled={hasSubmitted || timerExpired}
-                />
-              </div>
-              <EditorFooter
-                runSample={runSample}
-                submitCode={submitCode}
-                runningSample={runningSample}
-                submitting={submitting}
-                hasSubmitted={hasSubmitted}
-                timerExpired={timerExpired}
-                verdict={verdict}
-                matchStatus={match.status}
-              />
+      {/* ================= MAIN SPLIT WORKSPACE ================= */}
+      <div className="flex-1 flex overflow-hidden p-3 gap-3">
+        
+        {/* ================= LEFT PANE: PROBLEM STATEMENT ================= */}
+        <div
+          className={`lg:w-1/2 w-full flex-col h-full rounded-2xl bg-[#080C17]/85 border border-white/[0.06] overflow-hidden ${
+            mobileTab === "problem" ? "flex" : "hidden lg:flex"
+          }`}
+        >
+          {/* Problem Header Tabs */}
+          <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.02] flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center space-x-2">
+              <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-semibold">
+                Problem Specification
+              </span>
             </div>
-          )}
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              Python 3 (Standard IO)
+            </span>
+          </div>
+
+          {/* Problem Content (Scrollable) */}
+          <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 text-slate-300 select-text">
+            
+            {/* Title & Banner */}
+            <div>
+              <h2 className="text-xl sm:text-2xl font-extrabold text-white">
+                {match.problem?.title}
+              </h2>
+              <div className="h-0.5 w-16 bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full mt-2" />
+            </div>
+
+            {/* Standard IO Instruction Note */}
+            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200/90 text-xs sm:text-sm space-y-1">
+              <p className="font-bold flex items-center space-x-1.5 text-amber-300">
+                <span>⚡</span>
+                <span>Competitive Coding Guidelines</span>
+              </p>
+              <ul className="list-disc ml-5 space-y-0.5 text-slate-300 text-xs">
+                <li>Read input directly using <code className="text-cyan-300 font-mono">input()</code>. Do not prompt strings.</li>
+                <li>Print ONLY the expected output with <code className="text-cyan-300 font-mono">print(...)</code>.</li>
+              </ul>
+            </div>
+
+            {/* Description */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">
+                Description
+              </h3>
+              <div className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap bg-white/[0.02] p-4 rounded-xl border border-white/[0.04]">
+                {match.problem?.description}
+              </div>
+            </div>
+
+            {/* Input Format */}
+            {match.problem?.inputFormat && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">
+                  Input Format
+                </h3>
+                <pre className="text-xs font-mono text-emerald-300 bg-[#04060B] p-3 rounded-xl border border-white/[0.06] overflow-x-auto">
+                  {match.problem.inputFormat}
+                </pre>
+              </div>
+            )}
+
+            {/* Output Format */}
+            {match.problem?.outputFormat && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">
+                  Output Format
+                </h3>
+                <pre className="text-xs font-mono text-cyan-300 bg-[#04060B] p-3 rounded-xl border border-white/[0.06] overflow-x-auto">
+                  {match.problem.outputFormat}
+                </pre>
+              </div>
+            )}
+
+            {/* Sample Case */}
+            {(match.problem?.sampleInput || match.problem?.sampleOutput) && (
+              <div className="space-y-3 pt-2">
+                <h3 className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">
+                  Sample Case
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3 rounded-xl bg-[#04060B] border border-white/[0.06]">
+                    <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Sample Input</span>
+                    <pre className="text-xs font-mono text-slate-200 whitespace-pre-wrap">
+                      {match.problem.sampleInput || "N/A"}
+                    </pre>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#04060B] border border-white/[0.06]">
+                    <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Expected Output</span>
+                    <pre className="text-xs font-mono text-emerald-300 whitespace-pre-wrap">
+                      {match.problem.sampleOutput || "N/A"}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </div>
         </div>
 
-        <MatchStyles />
+        {/* ================= RIGHT PANE: CODE EDITOR & CONSOLE ================= */}
+        <div
+          className={`lg:w-1/2 w-full flex-col h-full rounded-2xl bg-[#080C17]/85 border border-white/[0.06] overflow-hidden ${
+            mobileTab === "editor" ? "flex" : "hidden lg:flex"
+          }`}
+        >
+          {/* Editor Action Header */}
+          <div className="px-4 py-2.5 border-b border-white/[0.06] bg-white/[0.02] flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center space-x-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
+              <span className="text-xs font-mono font-semibold text-slate-300">solution.py</span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              {/* Status pill */}
+              {hasSubmitted && (
+                <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-mono">
+                  ✓ Submitted
+                </span>
+              )}
+
+              {/* Starter Snippet Helper */}
+              {!sourceCode && (
+                <button
+                  onClick={() =>
+                    setSourceCode(
+                      `# Write your solution below\n# Input: input()\n# Output: print(...)\n\ndef solve():\n    pass\n\nif __name__ == "__main__":\n    solve()\n`
+                    )
+                  }
+                  className="px-2.5 py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white text-xs font-mono transition-colors"
+                >
+                  Insert Template
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Monaco Code Editor Container */}
+          <div className="flex-1 relative min-h-0">
+            <CodeEditor
+              value={sourceCode}
+              onChange={setSourceCode}
+              disabled={hasSubmitted || timerExpired}
+            />
+          </div>
+
+          {/* Bottom Test Execution & Submission Dock */}
+          <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#070A14] flex flex-col">
+            
+            {/* Console Output (Collapsible/Conditional) */}
+            {(sampleOutput || verdict) && (
+              <div className="p-3 border-b border-white/[0.06] max-h-36 overflow-y-auto font-mono text-xs select-text">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center space-x-3">
+                    <span
+                      onClick={() => setActiveConsoleTab("sample")}
+                      className={`cursor-pointer pb-0.5 text-xs font-semibold transition-colors ${
+                        activeConsoleTab === "sample"
+                          ? "text-cyan-400 border-b-2 border-cyan-400"
+                          : "text-slate-500 hover:text-slate-300"
+                      }`}
+                    >
+                      Sample Output
+                    </span>
+                    {verdict && (
+                      <span
+                        onClick={() => setActiveConsoleTab("verdict")}
+                        className={`cursor-pointer pb-0.5 text-xs font-semibold transition-colors ${
+                          activeConsoleTab === "verdict"
+                            ? "text-indigo-400 border-b-2 border-indigo-400"
+                            : "text-slate-500 hover:text-slate-300"
+                        }`}
+                      >
+                        Verdict
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setSampleOutput(null);
+                      if (!hasSubmitted) setVerdict("");
+                    }}
+                    className="text-slate-500 hover:text-slate-300 text-[10px]"
+                  >
+                    Clear ✕
+                  </button>
+                </div>
+
+                {activeConsoleTab === "sample" && sampleOutput && (
+                  <pre className="text-slate-300 whitespace-pre-wrap bg-black/40 p-2.5 rounded-lg border border-white/[0.04] overflow-x-auto">
+                    {sampleOutput}
+                  </pre>
+                )}
+
+                {activeConsoleTab === "verdict" && verdict && (
+                  <div
+                    className={`p-2.5 rounded-lg border font-bold flex items-center justify-between ${
+                      verdict.includes("Accepted") || verdict === "AC"
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                        : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                    }`}
+                  >
+                    <span>Verdict: {verdict}</span>
+                    <span className="text-[10px] font-normal text-slate-400">
+                      Evaluated on Judge0
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Bottom Buttons Bar */}
+            <div className="p-3 flex items-center justify-between gap-3 bg-[#080C17]">
+              
+              {/* Run Sample Button */}
+              <button
+                onClick={runSample}
+                disabled={runningSample || hasSubmitted || timerExpired}
+                className="px-4 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-200 hover:text-white text-xs sm:text-sm font-semibold transition-all flex items-center space-x-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {runningSample ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Executing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>▶</span>
+                    <span>Run Sample</span>
+                  </>
+                )}
+              </button>
+
+              {/* Submit Button */}
+              <button
+                onClick={submitCode}
+                disabled={submitting || hasSubmitted || timerExpired || !sourceCode.trim()}
+                className="flex-1 sm:flex-initial px-8 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40 transition-all flex items-center justify-center space-x-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {submitting ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Evaluating Test Cases...</span>
+                  </>
+                ) : hasSubmitted ? (
+                  <span>✓ Submitted (Waiting for Opponent)</span>
+                ) : (
+                  <>
+                    <span>Submit Solution</span>
+                    <span>→</span>
+                  </>
+                )}
+              </button>
+
+            </div>
+
+          </div>
+
+        </div>
+
       </div>
-    </>
+
+    </div>
   );
 };
-
-/* ─────────────────────────────────────────────
-   SHARED SUB-COMPONENTS
-───────────────────────────────────────────── */
-
-const ProblemPanel = ({ match }) => (
-  <>
-    <div className="mb-5">
-      <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">{match.problem.title}</h2>
-      <div className="h-1 w-24 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full"></div>
-    </div>
-
-    <div className="bg-yellow-500/20 border-2 border-yellow-500/50 backdrop-blur-xl p-4 rounded-2xl mb-6">
-      <div className="flex items-start space-x-3">
-        <svg className="w-6 h-6 text-yellow-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-        </svg>
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-yellow-200 mb-2">⚠️ Important Instructions</p>
-          <ul className="list-disc ml-4 space-y-1 text-yellow-100 text-sm">
-            <li>Do <strong>NOT</strong> print prompts like <code className="bg-black/30 px-1 rounded">"Enter a number"</code></li>
-            <li>Use <code className="bg-black/30 px-1 rounded">input()</code> directly to read input</li>
-            <li>Print <strong>ONLY</strong> the final output</li>
-          </ul>
-          <div className="mt-3 bg-black/40 p-3 rounded-xl font-mono text-xs text-green-300">
-            <p className="text-green-400 font-bold mb-1">✅ Correct pattern:</p>
-            <code>a = input()</code><br />
-            <code>b = input()</code><br />
-            <code>print(final_answer)</code>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div className="space-y-6 text-purple-100">
-      <div>
-        <h4 className="font-bold text-white text-lg mb-2 flex items-center">
-          <svg className="w-5 h-5 mr-2 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          Problem Description
-        </h4>
-        <p className="whitespace-pre-wrap bg-white/5 p-4 rounded-xl text-sm sm:text-base">{match.problem.description}</p>
-      </div>
-
-      <div>
-        <h4 className="font-bold text-white text-lg mb-2 flex items-center">
-          <svg className="w-5 h-5 mr-2 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-          </svg>
-          Input Format
-        </h4>
-        <pre className="bg-black/40 p-4 rounded-xl text-green-300 font-mono text-xs sm:text-sm overflow-x-auto">
-          {match.problem.inputFormat}
-        </pre>
-      </div>
-
-      <div>
-        <h4 className="font-bold text-white text-lg mb-2 flex items-center">
-          <svg className="w-5 h-5 mr-2 text-pink-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-          </svg>
-          Output Format
-        </h4>
-        <pre className="bg-black/40 p-4 rounded-xl text-pink-300 font-mono text-xs sm:text-sm overflow-x-auto">
-          {match.problem.outputFormat}
-        </pre>
-      </div>
-
-      <div>
-        <h4 className="font-bold text-white text-lg mb-2 flex items-center">
-          <svg className="w-5 h-5 mr-2 text-purple-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
-          </svg>
-          Sample Test Case
-        </h4>
-        <div className="bg-black/40 p-4 rounded-xl font-mono text-xs sm:text-sm">
-          <div className="mb-3">
-            <p className="text-green-400 font-bold mb-1">Input:</p>
-            <pre className="text-green-300 whitespace-pre-wrap">{match.problem.sampleInput}</pre>
-          </div>
-          <div>
-            <p className="text-blue-400 font-bold mb-1">Output:</p>
-            <pre className="text-blue-300 whitespace-pre-wrap">{match.problem.sampleOutput}</pre>
-          </div>
-        </div>
-      </div>
-    </div>
-  </>
-);
-
-const EditorHeader = ({ timerDisplay, timerClass }) => (
-  <div className="mb-4 flex-shrink-0 flex items-center justify-between">
-    <div>
-      <h3 className="text-2xl font-bold text-white flex items-center">
-        <svg className="w-6 h-6 mr-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-        </svg>
-        Code Editor
-      </h3>
-      <div className="h-1 w-20 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full mt-2"></div>
-    </div>
-    <div className="flex flex-col items-end">
-      <p className="text-purple-300 text-xs uppercase tracking-wide mb-1">Time Left</p>
-      <span className={`text-xl font-mono font-bold px-4 py-2 rounded-xl transition-all duration-300 ${timerClass}`}>
-        {timerDisplay}
-      </span>
-    </div>
-  </div>
-);
-
-const EditorFooter = ({
-  runSample, submitCode,
-  runningSample, submitting,
-  hasSubmitted, timerExpired,
-  verdict, matchStatus,
-}) => (
-  <div className="flex-shrink-0 space-y-3">
-    <div className="flex gap-3">
-      <button
-        onClick={runSample}
-        disabled={runningSample || hasSubmitted || timerExpired}
-        className="flex-1 group relative overflow-hidden bg-gradient-to-r from-gray-600 to-gray-700 text-white py-3 px-4 rounded-xl font-bold shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-gray-500/50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-      >
-        <div className="absolute inset-0 bg-gradient-to-r from-gray-700 to-gray-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-        <div className="relative flex items-center justify-center space-x-2">
-          {runningSample ? (
-            <>
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-              <span className="text-sm sm:text-base">Running...</span>
-            </>
-          ) : (
-            <>
-              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-sm sm:text-base">Run Sample</span>
-            </>
-          )}
-        </div>
-      </button>
-
-      <button
-        onClick={submitCode}
-        disabled={submitting || hasSubmitted || timerExpired}
-        className="flex-1 group relative overflow-hidden bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-xl font-bold shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-purple-500/50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-      >
-        <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-        <div className="relative flex items-center justify-center space-x-2">
-          {submitting ? (
-            <>
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-              <span className="text-sm sm:text-base">Submitting...</span>
-            </>
-          ) : (
-            <>
-              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-sm sm:text-base">Submit</span>
-            </>
-          )}
-        </div>
-      </button>
-    </div>
-
-    {verdict && (
-      <div className={`${
-        verdict.includes("Accepted") || verdict.includes("PASS")
-          ? "bg-green-500/20 border-green-500/50 text-green-200"
-          : "bg-red-500/20 border-red-500/50 text-red-200"
-      } backdrop-blur-xl border-2 p-3 rounded-2xl text-center font-bold`}>
-        <div className="flex items-center justify-center space-x-2">
-          {verdict.includes("Accepted") || verdict.includes("PASS") ? (
-            <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-            </svg>
-          ) : (
-            <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-            </svg>
-          )}
-          <span className="text-sm sm:text-base">Verdict: {verdict}</span>
-        </div>
-      </div>
-    )}
-
-    {hasSubmitted && matchStatus === "ONGOING" && (
-      <div className="bg-blue-500/20 border-2 border-blue-500/50 backdrop-blur-xl text-blue-200 p-3 rounded-2xl text-center animate-pulse">
-        <div className="flex items-center justify-center space-x-2">
-          <div className="w-3 h-3 bg-blue-400 rounded-full animate-ping flex-shrink-0"></div>
-          <span className="font-semibold text-xs sm:text-sm">Submission received. Waiting for opponent...</span>
-        </div>
-      </div>
-    )}
-
-    {timerExpired && !hasSubmitted && (
-      <div className="bg-red-500/20 border-2 border-red-500/50 backdrop-blur-xl text-red-200 p-3 rounded-2xl text-center">
-        <div className="flex items-center justify-center space-x-2">
-          <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-          </svg>
-          <span className="font-semibold text-xs sm:text-sm">Time's up! Auto-submitting...</span>
-        </div>
-      </div>
-    )}
-  </div>
-);
-
-const MatchStyles = () => (
-  <style>{`
-    @keyframes fade-in {
-      from { opacity: 0; transform: translateY(20px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes blob {
-      0%, 100% { transform: translate(0, 0) scale(1); }
-      33% { transform: translate(30px, -50px) scale(1.1); }
-      66% { transform: translate(-20px, 20px) scale(0.9); }
-    }
-    @keyframes bounce-slow {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-20px); }
-    }
-    .animate-fade-in { animation: fade-in 0.6s ease-out; }
-    .animate-blob { animation: blob 7s infinite; }
-    .animate-bounce-slow { animation: bounce-slow 2s ease-in-out infinite; }
-    .animation-delay-2000 { animation-delay: 2s; }
-    .animation-delay-4000 { animation-delay: 4s; }
-    .scrollbar-thin::-webkit-scrollbar { width: 4px; }
-    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-    .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 999px; }
-    .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.35); }
-  `}</style>
-);
 
 export default Match;

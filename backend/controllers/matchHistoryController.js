@@ -1,9 +1,16 @@
+import mongoose from "mongoose";
 import Match from "../models/Match.js";
 import Problem from "../models/Problem.js";
 
 export const getMatchHistory = async (req, res) => {
   try {
     const { userId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: "Invalid userId" });
+    }
+
+    const userObjectId = new mongoose.Types.ObjectId(userId);
 
     // pagination params
     const page = Math.max(parseInt(req.query.page) || 1, 1);
@@ -13,13 +20,13 @@ export const getMatchHistory = async (req, res) => {
     // total matches count
     const total = await Match.countDocuments({
       status: "COMPLETED",
-      "players.userId": userId
+      "players.userId": userObjectId
     });
 
     // paginated matches
     const matches = await Match.find({
       status: "COMPLETED",
-      "players.userId": userId
+      "players.userId": userObjectId
     })
       .sort({ completedAt: -1 })
       .skip(skip)
@@ -42,8 +49,10 @@ export const getMatchHistory = async (req, res) => {
         result: self?.result || "DRAW",
         ratingChange: self?.ratingChange || 0,
         problem: {
+          id: match.problemId?._id || null,
           title: match.problemId?.title || "Unknown"
         },
+        problemTitle: match.problemId?.title || "Unknown",
         date: match.completedAt
       };
     });

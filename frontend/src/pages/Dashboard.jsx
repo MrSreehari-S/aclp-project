@@ -2,53 +2,60 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import { useNavigate } from "react-router-dom";
+import AuthenticatedLayout from "../components/AuthenticatedLayout";
+import RankBadge, { getRankDetails } from "../components/RankBadge";
 
 const Dashboard = () => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [status, setStatus] = useState("idle");
+  const userId = user?.id || user?._id;
+  const [status, setStatus] = useState("idle"); // 'idle' | 'queued' | 'error'
+  const [errorMessage, setErrorMessage] = useState("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [attempts, setAttempts] = useState(0);
-  const pollingRef = useRef(null);
 
+  const pollingRef = useRef(null);
+  const timerRef = useRef(null);
+
+  // Check if user already has an active ongoing match on mount
   useEffect(() => {
+    if (!userId) return;
+
     const checkActiveMatch = async () => {
       try {
-        const res = await api.get(`/match/active/${user.id}`);
-
+        const res = await api.get(`/match/active/${userId}`);
         if (res.data.match?.matchId) {
           navigate(`/match/${res.data.match.matchId}`);
         }
       } catch (err) {
-        console.error("Active match check failed");
+        console.error("Active match check failed:", err.message);
       }
     };
 
     checkActiveMatch();
-  }, [user.id, navigate]);
+  }, [userId, navigate]);
 
-  const startMatch = async () => {
-    if (status === "queued") return;
+  // Clean up intervals on unmount
+  useEffect(() => {
+    return () => {
+      stopPolling();
+      stopTimer();
+    };
+  }, []);
 
-    setStatus("idle");
-    setAttempts(0);
+  const startTimer = () => {
+    setElapsedSeconds(0);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+  };
 
-    try {
-      const res = await api.post("/match/start", {
-        userId: user.id,
-      });
-
-      if (res.data.status === "queued") {
-        setStatus("queued");
-        startPolling();
-      }
-
-      if (res.data.status === "matched") {
-        navigate(`/match/${res.data.matchId}`);
-      }
-    } catch (err) {
-      console.error(err);
-      setStatus("error");
+  const stopTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
     }
   };
 
@@ -58,253 +65,409 @@ const Dashboard = () => {
     pollingRef.current = setInterval(async () => {
       try {
         setAttempts((a) => a + 1);
-
-        const res = await api.get(`/match/active/${user.id}`);
+        const res = await api.get(`/match/active/${userId}`);
 
         if (res.data.match?.matchId) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
+          stopPolling();
+          stopTimer();
           navigate(`/match/${res.data.match.matchId}`);
         }
       } catch (err) {
-        console.error("Polling failed");
+        console.error("Polling error:", err.message);
       }
-    }, 3000);
+    }, 2500);
   };
 
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-      }
-    };
-  }, []);
+  const stopPolling = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  };
 
-  if (status === "queued") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 relative overflow-hidden">
-        <div className="absolute inset-0 bg-black opacity-30"></div>
-        <div className="absolute inset-0">
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500 rounded-full filter blur-3xl opacity-20 animate-blob"></div>
-          <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-pink-500 rounded-full filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
-          <div className="absolute bottom-1/4 left-1/3 w-96 h-96 bg-indigo-500 rounded-full filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
-        </div>
-        
-        <div className="relative z-10 bg-white/10 backdrop-blur-xl p-12 rounded-3xl shadow-2xl border border-white/20 w-96 text-center space-y-6 animate-fade-in">
-          <div className="relative">
-            <div className="w-32 h-32 mx-auto mb-6 relative">
-              <div className="absolute inset-0 border-4 border-purple-300/30 rounded-full animate-ping"></div>
-              <div className="absolute inset-0 border-4 border-t-purple-400 border-r-pink-400 border-b-transparent border-l-transparent rounded-full animate-spin-slow"></div>
-              <div className="absolute inset-4 border-4 border-t-transparent border-r-transparent border-b-pink-400 border-l-purple-400 rounded-full animate-spin-reverse"></div>
-            </div>
-          </div>
-          
-          <h2 className="text-3xl font-bold text-white">Finding Your Match</h2>
-          
-          <div className="space-y-4">
-            <p className="text-purple-200 font-medium text-lg animate-pulse">
-              Searching for opponent...
-            </p>
-            <div className="flex justify-center gap-2">
-              <div className="w-3 h-3 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
-              <div className="w-3 h-3 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
-              <div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
-            </div>
-          </div>
-          
-          <div className="pt-6 border-t border-white/20">
-            <div className="bg-white/10 rounded-xl p-4">
-              <p className="text-sm text-purple-200">Connection Attempts</p>
-              <p className="text-4xl font-bold text-white mt-2">{attempts}</p>
-            </div>
-            <p className="text-xs text-purple-300 mt-4">Please keep this window open</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const handleStartMatch = async () => {
+    if (status === "queued" || !userId) return;
+
+    setErrorMessage("");
+    setStatus("idle");
+    setAttempts(0);
+
+    try {
+      const res = await api.post("/match/start", { userId });
+
+      if (res.data.status === "already_in_match" && res.data.matchId) {
+        navigate(`/match/${res.data.matchId}`);
+        return;
+      }
+
+      if (res.data.status === "matched") {
+        navigate(`/match/${res.data.matchId}`);
+        return;
+      }
+
+      if (res.data.status === "queued" || res.data.status === "already_queued") {
+        setStatus("queued");
+        startTimer();
+        startPolling();
+      }
+    } catch (err) {
+      console.error("Matchmaking error:", err);
+      setStatus("error");
+      setErrorMessage(
+        err.response?.data?.message || "Failed to enter matchmaking queue. Please try again."
+      );
+    }
+  };
+
+  const handleCancelQueue = () => {
+    stopPolling();
+    stopTimer();
+    setStatus("idle");
+    setAttempts(0);
+    setElapsedSeconds(0);
+  };
+
+  // Format elapsed seconds as MM:SS
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const rankInfo = getRankDetails(user?.rating || 1200);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="absolute inset-0">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-500 rounded-full filter blur-3xl opacity-20 animate-blob"></div>
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500 rounded-full filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
-      </div>
-
-      <div className="relative z-10 w-full max-w-6xl grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fade-in">
+    <AuthenticatedLayout>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 w-full animate-fade-in">
         
-        {/* Left Column - User Info */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 backdrop-blur-xl p-8 rounded-3xl border border-white/20 shadow-2xl transform transition-all duration-500 hover:scale-105 hover:shadow-purple-500/50">
-            <div className="text-center space-y-4">
-              <div className="w-24 h-24 mx-auto bg-gradient-to-br from-purple-400 to-pink-600 rounded-full flex items-center justify-center text-white text-4xl font-bold shadow-lg">
-                {user.username.charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <p className="text-purple-200 text-sm uppercase tracking-wide">Player</p>
-                <h3 className="text-2xl font-bold text-white mt-1">{user.username}</h3>
-              </div>
-              <div className="bg-white/10 rounded-2xl p-4 backdrop-blur">
-                <p className="text-purple-200 text-xs uppercase tracking-wide">Current Rating</p>
-                <p className="text-5xl font-bold bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent mt-2">
-                  {user.rating}
-                </p>
-              </div>
+        {/* Top Header / Greeting */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 pb-6 border-b border-white/[0.06] gap-4">
+          <div>
+            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-mono tracking-wider mb-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>ARENA SERVER ONLINE</span>
             </div>
+            <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-white">
+              Battle Headquarters
+            </h1>
+            <p className="text-slate-400 text-sm md:text-base mt-1 max-w-xl">
+              Welcome back, <span className="text-slate-200 font-semibold">{user?.username}</span>. Challenge programmers worldwide to 1v1 algorithmic duels.
+            </p>
           </div>
 
-          {status === "error" && (
-            <div className="bg-red-500/20 backdrop-blur-xl border border-red-500/50 text-red-200 p-4 rounded-2xl animate-shake shadow-lg">
-              <p className="font-semibold">⚠️ Matchmaking Error</p>
-              <p className="text-sm mt-1">Failed to start matchmaking</p>
-            </div>
-          )}
-        </div>
-
-        {/* Middle Column - Main Action */}
-        <div className="lg:col-span-1 flex items-center justify-center">
-          <div className="w-full">
+          <div className="flex items-center space-x-3">
             <button
-              onClick={startMatch}
-              className="w-full group relative overflow-hidden bg-gradient-to-r from-blue-600 to-purple-600 p-1 rounded-3xl shadow-2xl transform transition-all duration-300 hover:scale-110 hover:shadow-blue-500/50 active:scale-95"
+              onClick={() => navigate("/leaderboard")}
+              className="px-4 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 hover:text-white text-sm font-medium transition-all duration-200 flex items-center space-x-2"
             >
-              <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <div className="relative bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-12 text-center">
-                <div className="mb-4">
-                  <div className="w-20 h-20 mx-auto bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center transform group-hover:rotate-12 transition-transform duration-300">
-                    <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                  </div>
-                </div>
-                <h2 className="text-3xl font-bold text-white mb-2">Find Match</h2>
-                <p className="text-purple-300 text-sm">Start your next battle</p>
-              </div>
+              <span>🏆</span>
+              <span>Leaderboard</span>
+            </button>
+            <button
+              onClick={() => navigate("/history")}
+              className="px-4 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 hover:text-white text-sm font-medium transition-all duration-200 flex items-center space-x-2"
+            >
+              <span>📜</span>
+              <span>Battle Log</span>
             </button>
           </div>
         </div>
 
-        {/* Right Column - Navigation */}
-        <div className="lg:col-span-1 space-y-4">
-          <button
-            onClick={() => navigate("/history")}
-            className="w-full group relative overflow-hidden bg-gradient-to-r from-slate-700 to-slate-600 p-6 rounded-2xl shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-slate-500/50 active:scale-95"
-          >
-            <div className="absolute inset-0 bg-gradient-to-r from-slate-600 to-slate-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            <div className="relative flex items-center space-x-4">
-              <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center group-hover:bg-white/20 transition-colors">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div className="text-left">
-                <h3 className="text-white font-bold text-lg">Match History</h3>
-                <p className="text-slate-300 text-sm">View past games</p>
+        {/* Error Alert */}
+        {status === "error" && (
+          <div className="mb-8 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-200 flex items-center justify-between animate-fade-in">
+            <div className="flex items-center space-x-3">
+              <span className="text-xl">⚠️</span>
+              <div>
+                <p className="font-semibold text-sm">Matchmaking Issue</p>
+                <p className="text-xs text-rose-300">{errorMessage}</p>
               </div>
             </div>
-          </button>
+            <button
+              onClick={() => setStatus("idle")}
+              className="text-xs text-rose-300 hover:text-white px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
-          <button
-            onClick={() => navigate("/leaderboard")}
-            className="w-full group relative overflow-hidden bg-gradient-to-r from-green-600 to-emerald-600 p-6 rounded-2xl shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-green-500/50 active:scale-95"
-          >
-            <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 to-green-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            <div className="relative flex items-center space-x-4">
-              <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center group-hover:bg-white/20 transition-colors">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-                </svg>
-              </div>
-              <div className="text-left">
-                <h3 className="text-white font-bold text-lg">Leaderboard</h3>
-                <p className="text-green-100 text-sm">Top players</p>
-              </div>
-            </div>
-          </button>
+        {/* Main Grid: 2 Columns */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          
+          {/* Left Column (8 cols): Primary Matchmaking / Radar Area */}
+          <div className="lg:col-span-8 space-y-6">
+            
+            {status === "queued" ? (
+              /* ================= MATCHMAKING RADAR ================= */
+              <div className="relative rounded-3xl bg-[#080C17]/90 border border-indigo-500/30 p-8 md:p-12 shadow-2xl shadow-indigo-500/10 overflow-hidden text-center flex flex-col items-center justify-center min-h-[460px]">
+                
+                {/* Background Radar Rings */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-40">
+                  <div className="w-[320px] h-[320px] rounded-full border border-indigo-500/20 animate-ping [animation-duration:3s]" />
+                  <div className="absolute w-[240px] h-[240px] rounded-full border border-indigo-400/30" />
+                  <div className="absolute w-[160px] h-[160px] rounded-full border border-cyan-400/40" />
+                  <div className="absolute w-[80px] h-[80px] rounded-full border border-indigo-300/50" />
+                  
+                  {/* Rotating Radar Scanner Sweep */}
+                  <div className="absolute w-[260px] h-[260px] rounded-full animate-spin-slow bg-[conic-gradient(from_0deg,transparent_0_300deg,rgba(99,102,241,0.25)_360deg)]" />
+                </div>
 
-          <button
-            onClick={logout}
-            className="w-full group relative overflow-hidden bg-gradient-to-r from-red-600 to-rose-600 p-6 rounded-2xl shadow-xl transform transition-all duration-300 hover:scale-105 hover:shadow-red-500/50 active:scale-95"
-          >
-            <div className="absolute inset-0 bg-gradient-to-r from-rose-600 to-red-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            <div className="relative flex items-center space-x-4">
-              <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center group-hover:bg-white/20 transition-colors">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
+                {/* Radar Center Status */}
+                <div className="relative z-10 flex flex-col items-center space-y-4">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                    <svg className="w-8 h-8 text-white animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+
+                  <div>
+                    <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-mono font-semibold uppercase tracking-wider mb-2">
+                      <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                      <span>Scanning For Contender</span>
+                    </span>
+                    <h2 className="text-2xl md:text-3xl font-extrabold text-white">
+                      Finding Your Match
+                    </h2>
+                    <p className="text-slate-400 text-sm mt-1">
+                      Searching for opponent with similar skill rating ({user?.rating || 1200} ELO)...
+                    </p>
+                  </div>
+
+                  {/* Timer & Poll Counter */}
+                  <div className="flex items-center space-x-4 bg-white/[0.04] border border-white/[0.08] px-6 py-3 rounded-2xl backdrop-blur-md">
+                    <div className="text-left">
+                      <p className="text-[10px] font-mono uppercase text-slate-400">Search Time</p>
+                      <p className="text-2xl font-mono font-bold text-white tracking-wider">
+                        {formatTime(elapsedSeconds)}
+                      </p>
+                    </div>
+                    <div className="w-px h-8 bg-white/10" />
+                    <div className="text-left">
+                      <p className="text-[10px] font-mono uppercase text-slate-400">Pings</p>
+                      <p className="text-2xl font-mono font-bold text-indigo-400">
+                        {attempts}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Cancel Queue CTA */}
+                  <div className="pt-2">
+                    <button
+                      onClick={handleCancelQueue}
+                      className="px-6 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 hover:text-white text-sm font-semibold transition-all duration-200 flex items-center space-x-2 group"
+                    >
+                      <svg className="w-4 h-4 transform group-hover:rotate-90 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      <span>Cancel Search</span>
+                    </button>
+                  </div>
+
+                </div>
               </div>
-              <div className="text-left">
-                <h3 className="text-white font-bold text-lg">Logout</h3>
-                <p className="text-red-100 text-sm">Exit session</p>
+            ) : (
+              /* ================= HERO MATCH CTA CARD ================= */
+              <div className="relative rounded-3xl bg-gradient-to-br from-[#0B101E] via-[#0D1426] to-[#0A0E1A] border border-white/[0.08] p-8 md:p-10 shadow-2xl overflow-hidden group hover:border-indigo-500/40 transition-all duration-500">
+                
+                {/* Subtle Ambient Radial Lighting */}
+                <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none group-hover:bg-indigo-500/20 transition-all duration-700" />
+                <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-cyan-500/10 rounded-full blur-[100px] pointer-events-none" />
+
+                <div className="relative z-10">
+                  <div className="flex items-center justify-between mb-6">
+                    <span className="px-3.5 py-1 rounded-full bg-gradient-to-r from-indigo-500/20 to-cyan-500/20 border border-indigo-500/30 text-indigo-300 text-xs font-semibold tracking-wider uppercase font-mono">
+                      ⚡ Quick Duel
+                    </span>
+                    <span className="text-xs font-mono text-slate-400">
+                      Standard Arena Rules • Python 3
+                    </span>
+                  </div>
+
+                  <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
+                    1v1 Competitive Arena
+                  </h2>
+                  <p className="text-slate-400 text-sm md:text-base mt-2 max-w-xl leading-relaxed">
+                    Enter the queue to be matched against an opponent of equal rating. Both players receive the exact same algorithmic problem. Fastest correct solution wins rating.
+                  </p>
+
+                  {/* Highlights Grid */}
+                  <div className="grid grid-cols-3 gap-3 md:gap-4 my-8">
+                    <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-center">
+                      <p className="text-xl md:text-2xl font-bold text-white font-mono">1v1</p>
+                      <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wide mt-0.5">Head-to-Head</p>
+                    </div>
+                    <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-center">
+                      <p className="text-xl md:text-2xl font-bold text-indigo-400 font-mono">10-15m</p>
+                      <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wide mt-0.5">Round Time</p>
+                    </div>
+                    <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-center">
+                      <p className="text-xl md:text-2xl font-bold text-emerald-400 font-mono">±32</p>
+                      <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wide mt-0.5">ELO Stake</p>
+                    </div>
+                  </div>
+
+                  {/* Action CTA Button */}
+                  <button
+                    onClick={handleStartMatch}
+                    className="w-full relative group/btn overflow-hidden rounded-2xl p-px bg-gradient-to-r from-indigo-500 via-purple-500 to-cyan-400 shadow-xl shadow-indigo-500/20 hover:shadow-indigo-500/40 transform transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0"
+                  >
+                    <div className="px-8 py-5 rounded-[15px] bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 flex items-center justify-center space-x-3 text-white font-bold text-lg md:text-xl transition-all group-hover/btn:bg-opacity-90">
+                      <svg
+                        className="w-6 h-6 transform group-hover/btn:scale-110 group-hover/btn:rotate-6 transition-all duration-300"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2.2}
+                          d="M13 10V3L4 14h7v7l9-11h-7z"
+                        />
+                      </svg>
+                      <span>Find Match Now</span>
+                      <svg
+                        className="w-5 h-5 transform group-hover/btn:translate-x-1 transition-transform duration-300"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                      </svg>
+                    </div>
+                  </button>
+
+                </div>
+              </div>
+            )}
+
+            {/* Battle Rules & Guidelines */}
+            <div className="rounded-3xl bg-[#090D17]/80 border border-white/[0.06] p-6 md:p-8 backdrop-blur-xl">
+              <h3 className="text-lg font-bold text-white flex items-center space-x-2 mb-4">
+                <span className="text-indigo-400">🛡️</span>
+                <span>Arena Combat Rules</span>
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.04]">
+                  <p className="text-sm font-semibold text-slate-200">1. Blind Duel</p>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    Opponent code remains hidden until both submissions are finalized or the timer expires.
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.04]">
+                  <p className="text-sm font-semibold text-slate-200">2. Real-Time Judge</p>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    Code is evaluated in isolated containers with strict time & memory limits via Judge0.
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.04]">
+                  <p className="text-sm font-semibold text-slate-200">3. ELO Stakes</p>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    Outcomes update your rank live. Ties grant zero rating change; victory rewards positive ELO.
+                  </p>
+                </div>
               </div>
             </div>
-          </button>
+
+          </div>
+
+          {/* Right Column (4 cols): Player Combat Dossier */}
+          <div className="lg:col-span-4 space-y-6">
+            
+            {/* Player Card */}
+            <div className="rounded-3xl bg-gradient-to-b from-[#0D1322] to-[#080C16] border border-white/[0.08] p-6 md:p-8 shadow-xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
+
+              <div className="relative z-10 text-center">
+                
+                {/* Avatar with Ring */}
+                <div className="w-24 h-24 mx-auto rounded-3xl p-1 bg-gradient-to-tr from-indigo-500 via-purple-500 to-cyan-400 shadow-xl shadow-indigo-500/20 mb-4 transform hover:scale-105 transition-transform duration-300">
+                  <div className="w-full h-full bg-[#080C16] rounded-[22px] flex items-center justify-center text-white text-3xl font-extrabold font-mono">
+                    {user?.username?.charAt(0).toUpperCase() || "C"}
+                  </div>
+                </div>
+
+                <h3 className="text-xl font-extrabold text-white">{user?.username}</h3>
+                <p className="text-xs font-mono text-indigo-400 uppercase tracking-widest mt-0.5">
+                  Competitive Duelist
+                </p>
+
+                {/* Rating Display */}
+                <div className="mt-6 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] backdrop-blur-md">
+                  <p className="text-xs uppercase font-mono tracking-wider text-slate-400">Current Rating</p>
+                  <p className="text-4xl md:text-5xl font-extrabold font-mono tracking-tight bg-gradient-to-r from-white via-indigo-200 to-cyan-300 bg-clip-text text-transparent mt-1">
+                    {user?.rating || 1200}
+                  </p>
+                  <div className="mt-3 flex justify-center">
+                    <RankBadge rating={user?.rating || 1200} size="md" />
+                  </div>
+                </div>
+
+                {/* Tier Overview Pill */}
+                <div className="mt-4 p-3 rounded-xl bg-white/[0.02] border border-white/[0.04] text-xs text-slate-400 text-left space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span>Rank Tier</span>
+                    <span className="font-semibold text-slate-200">{rankInfo.tier}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Status</span>
+                    <span className="text-emerald-400 font-medium">Ready For Combat</span>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Quick Links Card */}
+            <div className="rounded-3xl bg-[#090D17]/80 border border-white/[0.06] p-6 space-y-3">
+              <p className="text-xs font-mono uppercase tracking-wider text-slate-400 px-1">
+                Navigation
+              </p>
+
+              <button
+                onClick={() => navigate("/leaderboard")}
+                className="w-full p-3.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.06] text-left flex items-center justify-between group transition-all duration-200"
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-xl">🏆</span>
+                  <div>
+                    <p className="text-sm font-semibold text-white group-hover:text-indigo-300 transition-colors">
+                      Global Leaderboard
+                    </p>
+                    <p className="text-xs text-slate-400">View top rated coders</p>
+                  </div>
+                </div>
+                <svg className="w-5 h-5 text-slate-500 group-hover:text-white transform group-hover:translate-x-1 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+
+              <button
+                onClick={() => navigate("/history")}
+                className="w-full p-3.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.06] text-left flex items-center justify-between group transition-all duration-200"
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-xl">📜</span>
+                  <div>
+                    <p className="text-sm font-semibold text-white group-hover:text-indigo-300 transition-colors">
+                      Match History
+                    </p>
+                    <p className="text-xs text-slate-400">Past battles & rating changes</p>
+                  </div>
+                </div>
+                <svg className="w-5 h-5 text-slate-500 group-hover:text-white transform group-hover:translate-x-1 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+
+          </div>
+
         </div>
+
       </div>
-
-      <style>{`
-        @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          25% { transform: translateX(-10px); }
-          75% { transform: translateX(10px); }
-        }
-
-        @keyframes blob {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(30px, -50px) scale(1.1); }
-          66% { transform: translate(-20px, 20px) scale(0.9); }
-        }
-
-        @keyframes spin-slow {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        @keyframes spin-reverse {
-          from { transform: rotate(360deg); }
-          to { transform: rotate(0deg); }
-        }
-
-        .animate-fade-in {
-          animation: fade-in 0.6s ease-out;
-        }
-
-        .animate-shake {
-          animation: shake 0.4s ease-in-out;
-        }
-
-        .animate-blob {
-          animation: blob 7s infinite;
-        }
-
-        .animation-delay-2000 {
-          animation-delay: 2s;
-        }
-
-        .animation-delay-4000 {
-          animation-delay: 4s;
-        }
-
-        .animate-spin-slow {
-          animation: spin-slow 3s linear infinite;
-        }
-
-        .animate-spin-reverse {
-          animation: spin-reverse 2s linear infinite;
-        }
-      `}</style>
-    </div>
+    </AuthenticatedLayout>
   );
 };
 

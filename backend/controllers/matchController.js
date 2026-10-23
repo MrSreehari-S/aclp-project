@@ -134,62 +134,6 @@ export const getActiveMatch = async (req, res) => {
   }
 };
 
-// ================= MATCH HISTORY =================
-
-export const getMatchHistory = async (req, res) => {
-  try {
-    const { userId } = req.params;
-
-    // ✅ validate ObjectId
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ message: "Invalid userId" });
-    }
-
-    const userObjectId = new mongoose.Types.ObjectId(userId);
-
-    const matches = await Match.find({
-      status: "COMPLETED",
-      "players.userId": userObjectId,
-    })
-      .populate("problemId", "title")
-      .sort({ completedAt: -1 })
-      .limit(15)
-      .lean();
-
-    const history = matches.map((match) => {
-      const me = match.players.find(
-        (p) => p.userId.toString() === userId
-      );
-
-      const opponent = match.players.find(
-        (p) => p.userId.toString() !== userId
-      );
-
-      return {
-        matchId: match._id,
-        date: match.completedAt,
-        result: me?.result || "DRAW",
-        ratingChange: me?.ratingChange ?? 0,
-        opponent: opponent?.username || "Unknown",
-
-        // ✅ SAFE ACCESS
-        problem: {
-          id: match.problemId?._id || null,
-          title: match.problemId?.title || "Unknown",
-        },
-      };
-    });
-
-    return res.json({ matches: history });
-
-  } catch (err) {
-    console.error("Match history error:", err);
-    return res.status(500).json({
-      message: "Failed to fetch match history",
-      error: err.message, // 👈 helpful debug
-    });
-  }
-};
 // ================= GET MATCH =================
 
 export const getMatchById = async (req, res) => {
